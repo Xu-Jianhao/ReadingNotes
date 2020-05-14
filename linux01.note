@@ -1,0 +1,287 @@
+鸟哥的LINUX私房菜读书笔记
+
+一、linux
+
+二、主机规划与磁盘分区
+
+三、安装Centos7
+
+四、首次登入
+
+五、Linux的文件权限与目录配置
+	1、更改文件的群组	-	chgrp
+	2、更改文件的拥有者	-	chown
+	3、修改文件权限		-	chmod
+			数字法：	r - 4	w - 2	x - 1
+
+六、Linux文件与目录管理
+	1、touch的目的在于修改文件的时间参数，亦可用来创建空文件
+		将目标文件的日期修订为目前时间（mtime与atime）
+	2、一个文件记录的时间参数有三种,ls默认显示的是mtime
+		access time(atime)			-	最后的访问时间			ls -lu
+		status time(ctime)			-	状态修改时间（文件的属性，权限）	ls -lc
+		modification time(mtime)	-	最后内容修改时间		ls -l
+	3、除了传统的rwx权限之外，在Ext2/Ext3/Ext4/xfs文件系统中，还可以使用chattr与lsattr设定和观察文件的隐藏属性。
+			常见的 +a	只能新增数据
+				   +i	完全不能改动
+七、Linux磁盘与文件系统管理
+
+八、文件与文件系统的压缩、打包与备份
+
+九、VIM
+
+十、认识与学习BASH
+
+十一、正则表达式与文件格式化处理
+
+十二、学习Shell scripts
+
+十三、Linux账号管理与ACL权限设定
+
+十四、磁盘配额(Quota)与进阶文件系统管理
+
+十五、例行性工作排程(crontab)
+	1、仅执行一次的工作排程
+		服务atd	:
+			systemctl restart atd
+			systemctl enable atd	-	设置为开机启动
+			指令:	at now + 5 minutes		-	at [time]
+			执行at后，任务信息会在/var/spool/at生成
+		at的使用限制:
+			/etc/at.allow	写在此文件中的使用者才能使用at
+			/etc/at.deny	如果/etc/at.allow不存在，就寻找这个文件，写在此文件中的用户不能使用at
+
+	2、循环执行的工作排程
+		服务crond
+			crontab使用限制(两个文件保留一个):
+				/etc/cron.allow	写在此文件中的用户才可以使用crontab	(优先级高)
+				/etc/cron.deny	写在此文件中的用户不可以使用crontab
+			当用户使用crontab建立工作后,该项工作就会被记录到/var/spool/cron/中,以用户名建立文件
+			cron执行的每一项工作都会被记录在/var/log/cron
+
+			使用:
+				crontab -e	:	编辑crontab的工作内容
+						-r	:	删除当前用户所有工作内容
+						-l	:	显示当前用户所有工作内容
+
+			系统的配置文件
+				/etc/crontab	此文件存放系统的例行性任务(修改完后最好重启服务,以便数据可以被读取到内存)
+				/etc/cron.d/*	此目录下的文件都会被crontab所执行，当开发新软件时可以在此目录下单纯创建一个配置文件
+
+
+十六、进程管理与SELinux初探
+	1、脱机工作
+		nohup [指令与参数]		在终端机前景工作
+		nohub [指令与参数] &	在终端机背景工作,且不受账户注销影响
+			nohub 不只是bash内建命令
+	2、进程观察命令
+		pstree	-	进程关系以树状图形式展示
+		ps aux	-	观察系统所有的进程数据
+		ps -1A	-	观察所有
+		ps axjf	-	连同部分进程树状态
+		ps -l	-	查看自己bash相关的进程
+
+			-A	-	所有的process均显示出来，与-e具有同样的效果
+			-a	-	不与terminal有关的所有process
+			-u	-	有效使用者相关的process
+			x	-	通常与a这个参数一起使用，可列出较完整信息
+		输出格式规划:
+			l	-	较长、较详细的将该PID的信息列出
+			j	-	工作的格式
+			-f	-	做哟哥更为完整的输出
+
+		ps -l 展示信息详解
+			F S   UID    PID   PPID  C PRI  NI ADDR SZ WCHAN  TTY          TIME CMD
+			4 S  1000  11679  11678  0  80   0 - 29086 do_wai pts/0    00:00:00 bash
+			0 T  1000  13446  11679  0  80   0 - 37903 do_sig pts/0    00:00:00 vim	
+			
+			F :		代表这个进程旗标(process flags),说明这个进程的总结权限,常见的号码：
+				4	-	表示此进程的权限为root
+				1	-	表示此子进程仅进行fork而没有实际执行(exec)
+		
+			S :		代表这个进程的状态，主要状态有:
+				R(Running)	-	该程序正在运行中
+				S(Sleep)	-	该程序正在睡眠状态,但是可以被唤醒
+				D			-	不可被唤醒的睡眠状态,通常这至程序可能在等待I\O
+				T(Stop)		-	停止状态,可能是在工作控制或除错状态
+				Z(Zombie)	-	僵尸状态,进程已经终止但是却无法被移除至内存外
+
+			UID/PID/PPID	-	用户ID/进程ID/父亲进程ID
+
+			C :		代表CPU使用率，单位为百分比
+
+			PRI/NI	:	Priority/Nice的缩写,代表此进程被CPU所执行的优先级,数值越小代表该进程越快被CPU执行
+
+			ADDR/SZ/WCHAN	: 都与内存有关
+				ADDR	是kernel function,指出该进程在内存的哪个部分,如果是个running的进程,一般就会显示[-] 
+				SZ		代表此进程用掉多少内存
+				WCHAN	表示目前进程是否在运作中,若为 - 表示正在运作中
+		
+			TTY :	登入者的终端机位置,若为远程登录则使用动态终端接口(pts/n)
+
+			TIME :	使用掉的CPU时间,是此进程实际花费CPU运作的时间,而不是系统时间
+
+			CMD :	就是command 的缩写,造成此程序的触发程序之指令为何
+
+		ps aux	详解
+			USER        PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+			root          1  0.0  0.3 193756  5956 ?        Ss   11:42   0:05 /usr/lib/syste
+			root          2  0.0  0.0      0     0 ?        S    11:42   0:00 [kthreadd]
+			root          3  0.0  0.0      0     0 ?        S    11:42   0:00 [ksoftirqd/0]
+			
+			USER  :		该process属于哪个使用者账号
+			PID   :		
+			%CPU  :		该process使用掉的CPU资源百分比
+			%MEN  :		该process所占用的物理内存百分比
+			VSZ   :		该process使用掉的虚拟内存量(Kbytes)
+			RSS   :		该process占用的固定的内存量(Kbytes)
+			TTY   :		是在哪个终端机上面运作的,若与终端机无关则显示?,另外tty1-tty6是在本机上登入者
+								若为pts/0等等,则表示为网络连接进主机的进程
+			STAT  :		该进程目前的状态
+			START :		该进程被触发启动的时间
+			TIME  :		该进程实际使用CPU运作的时间
+			COMMAND :	该进程的实际指令
+
+	3、top	:	动态观察进程的变化
+		选项与参数:
+			-d	:	后面可以接秒数,就是整个进程画面更新的秒数.默认是5秒
+			-b	:	以批次的方式执行top,通常会搭配数据流重导向来将批次的结果输出成为文件
+			-n	:	与-b搭配,意义是需要进行几次top的输出结果
+			-p	:	指定PID来进行观察
+
+		在top执行过程中可以使用的按键指令:
+			?	:	显示在top当中可以输入的按键指令
+			P	:	以CPU的使用资源排序来显示
+			M	:	以内存的使用资源拍戏来显示
+			N	:	以PID来排序
+			T	:	以进程使用的CPU时间累积来排序显示
+			k	:	给予某个PID一个信号(signal)
+			r	:	给予某个PID重新制定一个nice值
+
+	4、进程的管理	-	kill、killall
+		kill	-	发送一个信号给指定的进程
+		killall	-	可以发送一个信号给一组服务
+			选项与参数	:
+				-i	-	interactive的意思,交互式的,若需要删除时,会出现提示字符给用户
+				-e	-	exact的意思,表示后面接的command name要一致,整个指令不能超过15字符
+				-I	-	指令名称,忽略大小写
+
+		例:		killall -9 httpd	终止所有以httpd启动的进程
+
+	5、进程的执行顺序(优先级)
+		PRI(priority)和NI(nice)	(进程优先级是会被子进程继承的)
+			PRI 值越低代表越优先执行,不过PRI的值是由核心动态调整的,用户无法直接调整PRI
+			想要调整进程的优先顺序,要通过NI值
+				PRI(new) = PRI(old)+nice
+
+			注意:
+				nice 值可调整的范围是 -20~19
+				root 可随意调整自己或他人进程的nice值,范围-20~19
+				一般使用者仅可以调整自己进程的nice值,且范围为0~19,避免一般用户抢占CPU
+			
+			nice值调整方式:
+				1\	一开始执行程序就给予一个特定的nice值,用nice指令
+					nice [-n nice值] command
+				2\	调整某个已经存在的PID的nice值,用renice指令
+					renice [nice值] PID
+
+	6、系统资源的观察
+		1\	free	-	内存的使用情况
+			选项与参数 :
+				-b	:	直接输入free时,显示的单位是Kbytes,我们可以使用b(bytes),m(Mbytes),k(Kbytes),及g(Gbytes)
+				-t	:	在输出的最终结果,显示物理内存与swap的总量
+				-s	:	可以让系统每几秒输出一次,不间断的一直输出
+				-c	:	与-s同事处理,让free列出几次的意思
+
+		2\	uname	-	查阅系统与核心相关信息
+			选项与参数 :
+				-a	:	所以系统相关的信息,包括底下的数据都会被列出来
+				-s	:	系统核心名称
+				-r	:	核心的版本
+				-m	:	本系统的硬件名称,例如i686或x86_64等
+				-p	:	CPU的类型,与-m类似,只是显示的是CPU的类型
+				-i	:	硬件的平台				
+		
+		3\	uptime	-	系统启动时间与工作负载
+			显示目前系统已经开机多久,以及1,5,15分钟的平均负载
+
+		4\ netstat	-	追踪网络或插槽文件
+			选项与参数 :
+				-a	:	将目前系统上所有的联机、监听、Socket数据都列出来
+				-t	:	列出tcp网络封包的数据
+				-u	:	列出udp网络封包的数据
+				-n	:	以端口号来显示
+				-l	:	列出目前正在网络监听的服务
+				-p	:	列出该网络服务的进程PID
+
+		5\	dmesg	-	分析核心产生的讯息
+			将系统核心在运行过程中的信息打印出来,主要是查看一些硬件信息
+
+		6\	vmstat	-	侦测系统资源的变化
+			主要侦测 CPU/内存/磁盘输入输出状态
+			选项与参数 :
+				vmstat [-a] [延迟[总计侦测次数]]	-	CPU/内存等信息
+				vmstat [-fs]						-	内存相关
+				vmstat [-S 单位]					-	设定显示数据的单位
+				vmstat [-d]							-	与磁盘相关
+				vmstat [-p 分区槽]					-	与磁盘有关
+
+				-a	-	使用inactive/active(活跃与否)取代buffer/cache的内存输出信息
+				-f	-	开机到目前为止,系统复制(fork)的进程数
+				-s	-	将一些时间(开机到目前为止)导致的内存变化情况列表说明
+				-S	-	后面可以接单位,让显示的数据有单位.例如K/M取代bytes的容量
+				-d	-	列出磁盘的读写总量统计表
+				-p	-	后面列出分区槽,可显示该分区槽的读写总量统计表
+
+			信息详解(vmstat 5):
+				procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----
+				r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st
+				1  0      8  96992      0 901260    0    0   121     5   72   81  0  0 99  0  0
+				0  0      8  97000      0 901260    0    0     0     0  114  115  0  0 100  0  0
+				
+				procs字段:
+					r	-	等待运作的进程数量
+					b	-	不可被唤醒的进程数量
+						这两个项目越多,代表系统越忙碌
+				memory字段:
+					swpd	-	虚拟内存被使用的容量
+					free	-	未被使用的内存容量
+					buff	-	用于缓冲存储器
+					cache	-	用于高速缓存
+				swap字段(内存置换空间):
+					si	-	由磁盘中将进程取出的量
+					so	-	由于内存不足而将没用到的进程写入到磁盘的swap的容量
+						如果si/so的数值太大,表示内存内的数据常常得在磁盘与主存储器之间传来传去,系统效能会很差
+				io字段(磁盘读写):
+					bi	-	由磁盘读入的区块数量
+					bo	-	写入到磁盘去的区块数量
+						如果这部分的值越高,代表系统的I/O非常忙碌
+				system字段(系统):
+					in	-	每秒被中断的进程次数
+					cs	-	每秒钟进行的事件切换次数
+						这两个数值越大,代表系统与接口设备的沟通非常频繁,接口设备包括磁盘、网卡、时钟等.
+				cpu字段:
+					us	-	非核心层的CPU使用状态
+					sy	-	核心层所使用的CPU状态
+					id	-	闲置的状态
+					wa	-	等待I/O所耗费的CPU状态
+					st	-	被虚拟机所盗用的cpu使用状态
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
