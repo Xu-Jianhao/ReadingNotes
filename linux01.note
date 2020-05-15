@@ -56,6 +56,38 @@
                     -2  -   代表[第二个文件要用哪个字段来分析]
                 例:
                     join -t ':' /etc/passwd /etc/shadow | head -n 3     -   将/etc/passwd与/etc/shadow相关数据整合成一栏
+            4\  paste   -   将两个文件的两行合并成一行,且中间以[tab]隔开
+                paste [-d] file1 file2
+                选项与参数:
+                    -d  -   后面可以指定分隔符,预设是以[tab]来分隔的
+                    -   -   如果后面file部分写成-,表示来自standard input(STDIN)的资料的意思
+                例:
+                    paste /etc/passwd /etc/shadow   -   将两个文件的同一行合并
+
+            5\  expand  -   将[tab]转化为空格
+                expand [-t] file
+                选项与参数:
+                    -t  -   指定数字,默认一个[tab]转化为8个空格,-t可以指定转化为多少个空格
+        
+        2、 split   -   分区命令(将大文件分割成小文件)
+            split [-bl] file PREFIX
+            选项与参数:
+                -b  -   指定想要分割成的文件大小,可加单位,例如b,k,m等
+                -l  -   以行数来进行分割
+                PREFIX  -   文件名前缀,分割成小文件的文件名前缀
+
+        3、 xargs   -   参数代换
+            xargs [-0epn] command
+            选项与参数:
+                -0  -   如果输入的stdin含有特殊字符,例如`,\.空格键等等字符时,-0参数可以将它还原成一般字符
+                -e  -   这个是EOF的意思,指定一个字符串,当xargs分析到这个字符时,就停止工作
+                -p  -   在执行每个指令的argument时,都会询问使用者的意思
+                -n  -   指定数字,每次command指令执行时,要使用几个参数的意思
+                当xargs后面没有指定任何指令时,默认是以echo来进行输出
+
+            例:
+                cut -d ':' -f 1 /etc/passwd | head -n 3 | xargs -n 1 id -   使用id来打印passwd文件每个用户id
+                find /usr/sbin -perm /7000 | xargs ls -l    -   ls 查看每个find找到的目录
 
 十一、正则表达式与文件格式化处理
 
