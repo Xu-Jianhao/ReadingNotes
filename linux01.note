@@ -652,8 +652,17 @@
                 -v  -   启动显示模式,会在终端显示logrotate 运作过程
                 -f  -   无论是否符合配置文件的数据,强制每个日志文件都进行轮替
 
-
-
+十九、  Linux 的开机流程分析
+    1、 开机流程
+        1)  加载BIOS的硬件信息与进行自我测试,并依据设定取得第一个可开机的装置
+        2)  读取并执行第一个开机装置内MBR的boot Loader(grub2/spfdisk等程序)
+        3)  依据boot loader 的设定加载Kernel, Kernel会开始侦测硬件与加载驱动程序
+        4)  在硬件驱动成功后,Kernel会主动呼叫systemd程序,并以default.target流程开机
+            -   systemd 执行 sysinit.target 初始化系统及basic.target 准备操作系统
+            -   systemd 启动 multi-user.target 下的本机与服务器服务
+            -   systemd 执行 multi-user.target 下的 /etc/rc.d/rc.local 文件
+            -   systemd 执行 multi-user.target 下的 getty.target 及登入服务
+            -   systemd 执行 graphical 需要的服务
 
 
 
