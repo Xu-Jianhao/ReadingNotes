@@ -513,10 +513,144 @@
         查看进程所用到的socketfile  -   systemctl list-sockets
         /etc/service    -   服务对应的端口信息
 
+十八、认识与分析登录档(系统日志文件)
 
+    1、 常见日志文件记录信息详解
+        /var/log/boot.log
+            开机的时候系统核心会去侦测与启动硬件,接下来开始各种核心支持的功能启动等。
+            这些流程都会记录在此日志文件,每个日志文件只会记录此次开机启动的信息
+        /var/log/cron
+            记录crond的执行信息,包括/etc/crontab编写是否正确
+        /var/log/dmesg
+            记录系统在开机的时候核心侦测过程所产生的各项信息,由于CentOS默认将开机时核心
+            的硬件侦测过程取消显示,所以额外将数据记录一份在此文件
+        /var/log/lastlog
+            记录系统上面所有账号最近一次登入系统时的相关信息,lastlog命令就是利用这个文件记录的信息显示
+        /var/log/maillog或/var/log/mail/*
+            记录邮件的往来信息,其实主要记录postfix(SMTP协议提供者)与dovecot(POP3协议提供者)所
+            产生的讯息.SMTP是发信所使用的通讯协议,POP3则是收信使用的通讯协议.
+            postfix与dovecot分别是两套达成通讯协议的软件
+        /var/log/messages(重要)
+            几乎系统发生的任何错误信息(或者重要信息)都会记录在此文件中
+        /var/log/secure
+            基本上只要牵涉到[需要输入账号密码]的软件,那么当登入时(无论登入正确或错误)都会
+            被记录在此文件,包括系统的login程序、图形接口登入所使用的gdm程序、su、sudo等程序
+            还有网络联机的ssh、telnet等程序,登入信息都会被记载在此文件
+        /var/log/wtmp,/var/log/faillog
+            这两个文件可以记录正确登入系统用户的账户信息(wtmp)与错误登入时所使用的账户信息(faillog)
+            last 命令就是读取此文件来显示的。
+        /var/log/httpd/*,/var/log/samba/*,...
+            不同的网络服务会使用它们自己的日志文件来记录它们自己产生的各项信息
 
+    2、 产生与管理日志的相关服务
+        1\  软件开发商自定义写入的日志与相关格式
+        2\ Linux distribution(Linux 发行版)提供的日志统一管理服务来统一管理
+            CentOS提供rsyslog.service 来统一管理日志文件
+                systemd-journald.service    -   最主要的信息接受者,由systemd提供
+                rsyslog.service             -   主要记录系统与网络等服务的相关信息
+                logrotate                   -   主要进行日志文件的轮替功能(防止单一日志文件过大)
+    3、 rsyslog.service(系统日志记录服务) 详解
+        1\  rsyslog.service 的配置文件  /etc/rsyslog.conf
+            主要配置信息:
+                什么服务、什么等级的信息、需要被记录在哪里(装置或文件)
+            配置文件语法:
+                服务名称[.=!]日志信息等级       信息记录的文件名或装置或主机
+            例: mail.info                       /var/log/maillog_info
+            解: mail服务所产生的大于等于info等级的日志信息,都记录到/var/log/maillog_info文件中
 
+            服务名称:
+                Linux核心的syslog所认识的服务类型:
+                    (可使用man 3 syslog查询相关信息,或者查询syslog.h文件来了解)
+                0   -   kern(kernel)    -   核心(kernel)产生的信息,大部分都是硬件侦测以及核心功能的启用
+                1   -   user    -   在用户层级所产生的信息,例如用户使用logger命令来记录日志信息
+                2   -   mail    -   邮件收发相关的信息
+                3   -   daemon  -   主要是系统的服务所产生的信息,例如systemd就是这个的有关信息
+                4   -   auth    -   主要与认证/授权有关的机制,例如login,ssh,su 等需要账号密码的服务
+                5   -   syslog  -   由syslog相关协议产生的信息,其实就是rsyslogd 本身产生的信息
+                6   -   lpr     -   打印相关的信息
+                7   -   news    -   与新闻组服务器相关的信息
+                8   -   uucp    -   全名Unix to Unix Copy Protocol,早期用于unix系统间的程序数据交换
+                9   -   cron    -   crond/atd 所产生的信息
+                10  -   authpriv    -   与auth类似,但记录较多账号私人的信息,包括pam模块的运作等
+                11  -   ftp     -   与FTP通讯协议有关的信息输出
+                16~23   -   local0~local7   -   保留给本机用户使用的一些日志文件信息,通常是与终端机互动
+        
+            日志等级:
+                Linx核心的syslog将日志等级分为7个主要等级,根据syslog.h的定义:
+                7   -   debug   -   用来debug(除错)时产生的信息数据
+                6   -   info    -   仅是一些基本的信息说明
+                5   -   notice  -   正常信息,但是比info还需要被注意到的一些信息
+                4   -   warning -   警示信息,可能有问题,但是不至于影响到某个daemon运作
+                3   -   err(error)  -   一些重大的错误信息,例如配置文件的某些设定值造成的该服务无法启动的
+                                        信息说明
+                2   -   crit    -   比error还要严重的错误信息,这个crit是临界点(critcal)的缩写
+                1   -   alert   -   比crit还要严重
+                0   -   emerg(panic)    -   疼痛等级,表示系统已经要当机的状态,通常只有硬件出问题
+                                            导致整个核心无法顺利运作,才会出现该等级的信息
+            [.=!] 链接符号:
+                .   -   代表比此等级严重的信息(包括此等级)都要记录下来
+                .=  -   代表只记录该等级的信息,其他的不要
+                .!  -   代表不等于,意思是除了该等级以外的都要记录下来
 
+            信息记录的文件名或装置或主机:
+                指日志文件要放在哪的设定。装置可以是打印机之类的,也可以到不同的主机上
+                注意事项:
+                    文件的绝对路径  -   通常是放在/var/log路径下
+                    打印机或其他    -   例如/dev/lp0这个打印装置
+                    使用者名称      -   显示个用户
+                    远程主机        -   例如@xjh.vbird.tsai
+                    *               -   表示[目前在线所有人],类似wall这个命令的意义
+
+    4、 日志文件的轮替(logrotate)
+        1\  logrotate 的配置文件
+            /etc/logrotate.conf     -   主要参数文件
+            /etc/logrotate.d/       -   在此目录中文件会被读入到/etc/logrotate.conf中来执行
+
+            /etc/logrotate.conf 详解:
+            * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+                weekly      -   预设每周对日志文件进行一次rotate
+
+                rotate 4    -   设置保留几个日志文件  
+
+                create      -   如果日志文件被更名,就重新创建一个
+                
+                dateext     -   设定被轮替的日志文件加上日期作为文件名后缀
+
+                #compress   -   被轮替的日志文件是否需要被压缩,默认不开启
+
+                include /etc/logrotate.d    -   将/etc/logrotate这个目录中的所有文件都读取进来
+
+                /var/log/wtmp {         -   仅针对 /var/log/wtmp 所设定的参数
+                    monthly             -   每个月一次,取代上边设置的每周
+                    create 0664 root utmp   -   指定新建日志文件的权限与所属账号群组
+                    minsize 1M          -   指定文件容量一定要超过1M后才进行rotate
+                    rotate 1            -   仅保留一个日志文件
+                }
+            * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+            /etc/logrotate.d/* 详解:
+            * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+            /var/log/cron       |
+            /var/log/maillog    |
+            /var/log/messages   |   ->  要被处理的日志文件名,绝对路径
+            /var/log/secure     |
+            /var/log/spooler    |
+            {               -   参数要使用{}包括起来
+                missingok
+                sharedscripts   -   执行脚本,可以呼叫外部指令来进行额外的命令下达,结尾需要endscript
+                postrotate
+                /bin/kill -HUP `cat /var/run/syslogd.pid 2> /dev/null` 2> /dev/null || true
+                endscript
+            }
+                执行脚本可用的环境:
+                    prerotate   -   在启动logrotate之前进行的指令,例如修改日志文件的属性
+                    postrotate  -   在执行完logrotate之后启动的指令,例如重新启动某个服务(kill -HUP)
+            * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+        2\  logrotate   -   手动执行日志文件轮替 
+            logrotate [-vf] /etc/logrotate.conf
+            选项与参数:
+                -v  -   启动显示模式,会在终端显示logrotate 运作过程
+                -f  -   无论是否符合配置文件的数据,强制每个日志文件都进行轮替
 
 
 
