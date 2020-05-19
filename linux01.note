@@ -795,6 +795,42 @@
 
     7、 Boot Loader - Grub2
 
+    8、 开机过程的问题解决
+        1\  修改root 密码(新版的systemd管理机制中,默认的rescue模式无法直接取得root权限)
+            1)  选单页面,按下e进入编辑模式
+            2)  在linux16 那个核心项目一行末尾添加 rd.break , [crtl] + x 启动
+            3)  此时进入RAM Disk 环境,系统的根目录会被挂载到/sysroot 目录下
+            4)  mount   -   检查挂载点
+            5)  mount -o remount,rw /sysroot    -   修改挂载权限为可读可写
+            6)  chroot /sysroot -   切换回实际的根目录所在
+            7)  echo "newpasswd" | passwd --stdin root  -   修改root密码
+            8)  touch /.autorelabel     -   重要!!  变回SELinux的安全本文
+            9)  exit, reboot
+
+                加上/.autorelabel 之后,系统会在开机时重新写入SELinux的type到每个文件,因此会花费比较长时间
+                另一种方法:
+                    1)  在rd.break 模式下,在修改完 root 密码后,将 /etc/selinux/config 内的SELinux 类型修改为permissive
+                    2)  重新启动后,使用root的身份下达[restorecon -Rv/etc] 仅修改 /etc 下的文件
+                    3)  重新修改 /etc/selinux/config 改回 enforcing, 然后 [setenforce 1] 即可
+
+        2\  直接开机就以root 执行 bash 的方法
+            1)  选单,编辑,在linux16 一行末尾添加 [init=/bin/bash] - 开机完成后会有root权限,但是不能完整的操作系统
+            2)  mount -o remount,rw /
+            3)  echo "newpasswd" | passwd --stdin root
+            4)  无法靠命令来关机....
+
+        3\  进入救援模式(需要root密码)
+            1)  选单,编辑,linux16末尾添加 systemd.unit=rescue.target    进入救援模式
+
+
+
+
+
+
+
+
+
+
 
 
 
