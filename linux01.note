@@ -822,9 +822,114 @@
         3\  进入救援模式(需要root密码)
             1)  选单,编辑,linux16末尾添加 systemd.unit=rescue.target    进入救援模式
 
+二十、  基础系统设定与备份策略
+    1、 系统的基本设定
+        1\  网络设定(手动设定与DHCP自动获得)
+            CentOS 7 网卡命名规则:
+                eno1    -   代表由主板BIOS内建的网卡
+                ens1    -   代表由主板BIOS内建的PCI-E界面的网卡
+                enp2s0  -   代表PCI-E界面的独立网卡,可能有多个插孔,因此会有s0,s1...的编号
+                eth0    -   如果上述的名称都不适用,就回到原本的预设网卡编号
+        
+            nmcli connection show   -   查看本机的网卡代号
+            执行结果:
+                NAME    UUID                                  TYPE      DEVICE 
+                ens33   79d8eece-0860-4b5d-a45c-fd9d14bb6fdb  ethernet  ens33  
+                virbr0  3f1d70c4-e54f-4db2-afb1-056b4a280690  bridge    virbr0 
+            字段含义:
+                NAME    -   网卡代号,通常与后面的网卡DEVICE一样
+                UUID    -   这个是特殊的装置识别
+                TYPE    -   网卡类型,通常是以太网卡
+                DEVICE  -   网卡名称
 
+            nmcli connection show [ens33]   -   查看某个网卡的详细信息
+            比较重要的信息:
+                connection.autoconnect[yes|no]  -   是否在开机时启动这个联机,预设应该是yes
+                ipv4.method[auto|manual]        -   自动还是手动获取网络参数
+                ipv4.dns [dns_server_ip]        -   DNS 的服务器地址
+                ipv4.addresses[IP/Netmask]      -   IP地址和netmask的集合
+                ipv4.gateway[gw_ip]             -   网关
+        
+            网络参数的手动设定方式:
+                nmcli connection modify eth0 \
+                > connection.autoconnect yes \
+                > ipv4.method manual \
+                > ipv4.addresses ip/mask \
+                > ipv4.gateway 网关 \
+                > ipv4.dns DNS
+                修改配置文件完毕,要启动这个网卡才会生效
+                nmcli connection up eth0    -   启动
 
+            自动设定:
+                nmcli connection modify eth0 \
+                > connection.autoconnect yes \
+                > ipv4.method auto
+                nmcli connection up eth0
 
+        2\  修改主机名
+            hostnamectl [set-hostname your_host_name]   -   设置主机名
+            hostnamectl     -   显示目前的主机名与相关信息
+
+        3\  日期与时间设定
+            timedatectl [command]
+            选项与参数:
+                list-timezones  -   列出系统上所支持的时区名称
+                set-timezone    -   设定时区位置
+                set-time        -   设定时间
+                set-ntp         -   设定网络校时系统
+
+    2、 服务器硬件数据的收集
+        1\  以系统内建dmidecode 解析硬件设备
+            dmidecode -t type
+            选项与参数:
+                1   -   详细的系统数据,含主板的型号与硬件的基础数据等
+                4   -   CPU的相关资料,包括倍频,外频,核心数,核心绪数等
+                9   -   系统的相关插槽格式,包括PCI,PCI-E等等的插槽规格说明
+                17  -   每个内存条插槽的规格,若内有内存,则列出该内存的容量与型号
+
+        2\  一些查看硬件实时信息的指令
+            gdisk   -   gdisk -l 可以将分区表列出
+            dmesg   -   观察核心运作过程中所显示的各项信息记录
+            vmstat  -   分析系统(CPU/RAM/IO)目前的状态
+            lspci   -   列出整个PC系统的PCI接口装置
+                lspci [-vvn]
+                选项与参数:
+                    -v  -   显示更多的PCI接口装置的详细信息
+                    -vv -   更详细
+                    -n  -   直接观察PCI的ID
+            lsusb   -   列出目前系统上面各个USB端口的状态,与连接的USB装置
+                lsusb [-t]
+                选项与参数:
+                    -t  -   使用类似树状目录来显示各个USB端口的相关性
+            iostat  -   与vmstat类似,可实时列出整个CPU与接口设备的Input/Output状态
+                iostate [-c|-d] [-k|-m] [-t] [间隔秒数] [侦测次数]
+                选项与参数:
+                    -c  -   仅显示CPU的状态
+                    -d  -   仅显示储存设备的状态,不可与-c 一起用
+                    -k  -   默认显示的是block,这里可以改成K bytes 的大小来显示
+                    -m  -   与 -k 类似,只是以MB 的单位来显示
+                    -t  -   显示日期
+            例:
+                iostate 执行结果:
+                * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+                Linux 3.10.0-862.el7.x86_64 (localhost.localdomain)     2020年05月19日  _x86_64_    (2 CPU)
+                avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+                           0.08    0.00    0.15    0.01    0.00   99.75
+
+                Device:      tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn
+                sda          1.16   26.75         4.52        455576      77057
+    
+                字段详解:
+                    上半部分是CPU信息,下半部分是储存装置的信息
+                    tps         -   平均每秒钟的传送次数,与数据传输的[次数]相关
+                    kB_read/s   -   开机到现在平均的读取单位
+                    kB_wrtn/s   -   开机到现在平均的写入单位
+                    kB_read     -   开机到现在,总共读取出来的文件单位
+                    kB_wrtn     -   开机到现在,总共写入的文件单位
+                * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+                iostate -d 2 3 sda  -   仅针对sda,两秒钟侦测一次,一共侦测三次
+                如果指定侦测次数的话,第一次显示的是从开机到现在的数据
+                第二次以后显示的数据则代表的是两次侦测之间的系统传输值
 
 
 
