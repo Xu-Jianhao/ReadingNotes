@@ -931,11 +931,188 @@
                 如果指定侦测次数的话,第一次显示的是从开机到现在的数据
                 第二次以后显示的数据则代表的是两次侦测之间的系统传输值
 
+二十一、    软件安装:源码安装与Tarball
+    1、 makefile 的规则和基本语法
+        1\  makefile 规则
+            * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+            目标(target): 目标文件1 目标文件2
+            <tab>   gcc -o 欲建立的执行文件 目标文件1 目标文件2
+            注意:
+                命令行必须要以tab键作为开头
+            * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+        2\  makefile 语法
+            变量与变量内容以 [=] 隔开
+            变量左边不可以有<tab>
+            变量与变量内容在 [=] 两边不能具有[:]
+            在习惯上,变量最好是以大写字母为主
+            运用变量时,以${}或$()来使用
+            在该shell的环境变量也是可以被makefile套用的
+            在指令列模式也可以给予变量
 
+    2、 函数库
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+                    静态函数库                                        动态函数库
+        -   扩建名为.a                                  -   扩展名为.so
+        
+        -   编译行为:静态函数库会直接整合在执行         -   编译行为:动态库与静态库的被整个捕捉到程序中
+            程序当中,所以利用静态库编译生成的文件           不同,动态库在编译时,在程序里只有一个指向函数
+            比较大                                          指针而已,生成的文件较小
+        
+        -   独立执行状态:静态库的优点就是编译成功       -   独立执行状态:不能独立执行,需要依赖动态库
+            的程序可以独立执行
 
+        -   静态库如果有变动,那整个程序执行文件需       -   动态库有变动,程序无需重新编译
+            要重新编译生成
+            
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+    3、 ldconfig 与 /etc/ld.so.conf
+        作用:将动态库加载在内存当中,增加动态库的读取效能
+        步骤:
+            1)  首先在 /etc/ld.so.conf 里面写下想要读入高速缓存当中的动态库所在目录(!!!!!不是文件,是目录)
+            2)  利用 ldconfig 命令将 /etc/ld.so.conf 的资料读入到内存
+            3)  同时也将数据记录一份在 /etc/ld.so.cache 这个文件中
 
+        ldconfig    -   可以用来查看动态库的链接信息
+        ldconfig [-f conf] [-C cache]
+        ldconfig [-p]
+        选项与参数:
+            -f conf     -   conf 指的是某个文件名,也就是说,使用conf作为libarary库的取得路径,而不用/etc/ld.so.conf
+            -C cache    -   cache 指的是某个文件名,也就是说,使用cache作为内存暂存的动态库资料,而不用/etc/ld.so.cache
+            -p  -   列出目前所有已加载的动态库资料内容
 
+    4、 程序的动态库解析    -   ldd
+        ldd [-vdr] [filename]
+        选项与参数:
+            -v  -   列出所以内容信息
+            -d  -   重新将资料有遗失的link点显示出来
+            -r  -   将ELF有关的错误内容显示出来
 
+        例:
+            ldd /usr/bin/passwd     -   找出passwd这个命令的动态库数据
 
+    5、 md5sum/sha1sum/sha256sum    -   计算指纹码
+        md5sum/sha1sum/sha256sum [-bct] filename
+        md5sum/sha1sum/sha256sum [--status|--warn] --check filename
+        选项与参数:
+            -b  -   使用binary 的读取方式,默认为Windows/DOS 文件型态的读取方式
+            -c  -   检验文件指纹
+            -t  -   以文字型态来读取文件指纹
 
+二十二、    软件安装RPM,SRPM与YUM
+    1、 RPM软件管理程序 -   rpm
+        rpm -ivh package_name   -   安装rpm包
+        选项与参数:
+            -i  -   install的意思
+            -v  -   查看更详细的安装信息画面
+            -h  -   以安装信息列显示安装进度
+        例:
+            rpm -ivh pachage_name1.rpm *.rpm    -   可以一次同时安装多个包
+            rpm -ivh http://www.xxx/pkgname.rpm -   可以直接安装网络上的包文件
 
+        rpm 常用的选项与参数说明:
+            --nodeps        -   当发生软件依赖性问题时,强制安装
+            --replacefiles  -   在安装过程中出现[某个文件已经安装]信息时或版本不合时,使用此参数覆盖安装
+            --replacepkgs   -   重复安装
+            --force         -   是replacefiles和replacepkgs的综合体
+            --test          -   测试一下该软件是否可以被安装
+            --justdb        -   由于RPM数据库损坏或产生不明原因的错误时,可用此参数更新软件在数据库内的相关信息
+            --nosignature   -   略过数字签名检查
+            --prefix path   -   将软件安装大其他非正规目录,自己指定目录
+            --noscripts     -   禁止软件在安装过程中自行执行某些系统指令
+    2、 RPM 升级与更新
+        rpm -Uvh software   -   后面接的软件如果没有安装,则系统将予以直接安装,若是旧版,就更新至新版
+        rpm -Fch software   -   没有安装就不会被自动安装,有安装就更新
+       
+    3、 RPM 查询 (实质是查询/var/lib/rpm/ 这个目录下的数据库文件)
+        rpm -qa 
+        rpm -q[licdR] 已安装软件名称
+        rpm -qf 存在于系统上面的某个文件名
+        rpm -qp[licdR] 未安装的某个文件名   -   查阅RPM文件
+        选项与参数:
+            查询已安装软件的信息:
+                -q  -   查询的意思
+                -qa -   列出所有的已经安装在本机上的软件名称
+                -qi -   列出该软件的详细信息(information),包含开发商、版本于说明
+                -ql -   列出该软件的所有文件于目录所在完整文件名
+                -qc -   列出该软件所有配置文件
+                -qd -   列出该软件所有说明文件
+                -qR -   列出该软件有关的依赖性
+                -qf -   找出该文件属于哪一个已安装的软件
+                -q --scripts    -   列出是否含有安装后需要执行的脚本
+            查询某个RPM 文件内含有的信息:
+                -qp[icdlR]  -   用于在找出某个RPM文件内的信息,而非已安装软件的信息.参数说明同上
+
+    4、 RPM 验证与数字签名 (Verify/signature)
+        rpm -Va
+        rpm -V 已安装的软件名称
+        rpm -Vp 某个RPM 的文件名
+        rpm -Vf 在系统上面的某个文件
+        选项与参数:
+            -V  -   后面加的是软件名称,若该软件所含的文件被更改过,就会显示出来
+            -Va -   列出目前系统上面所有可能被变动过的文件
+            -Vp -   后面加的是文件名,列出该软件内可能更动过的文件
+            -Vf -   列出某个文件是否被更改过
+        显示信息详解:
+            S   -   (file Size differs) 文件的容量大小是否被改变
+            M   -   (Mode differs) 文件的类型或文件的属性(rwx)是否被改变
+            5   -   (MD5 sum differs) MD5这一种指纹码的内容已经不同
+            D   -   (Device major / minor number mis-match) 装置的主/次代码已经改变
+            L   -   (readLink(2) path mis-match) Link 路径是否被改变
+            U   -   (User ownership differs) 文件的所属人已被改变
+            G   -   (Group ownership differs) 文件的所属群组被改变
+            T   -   (mTime differs) 文件的建立时间已经被改变
+            P   -   (caPabilities differ) 功能已经被改变
+            文件类型种类:
+                c   -   配置文件 (config file)
+                d   -   数据文件 (documentation)
+                g   -   ghost file
+                l   -   许可证文件 (license file)
+                r   -   自述文件 (read me)
+    5、 RPM 卸载与重建数据库 (erase / rebuilddb)
+        rpm -e package_name     -   卸载
+        rpm --rebuilddb         -   重建数据库
+
+    6、 yum
+        1\  查询功能
+            yum [option] [查询工作项目] [相关参数]
+            选项与参数:
+            [option]:
+                -y  -   当yum需要等待用户输入验证时,这个选项可以自动提供yes验证
+                --installroot=/some/path    -   将该软件安装在/some/path目录而不使用默认路径
+            [查询工作项目] [相关参数]:
+                search  -   搜寻某个软件名称或者是描述(description)的重要关键字
+                list    -   列出目前yum所管理的所有软件名称与版本
+                info    -   同list
+                provides    -   从文件中搜寻软件
+        
+        2\  安装/升级功能
+            yum [option] [安装与升级的工作项目] [相关参数]
+            选项与参数:
+                install -   安装
+                update  -   接软件名就单单升级一个软件,不接软件名就整个系统都升级
+
+        3\  移除软件
+            yum remove pam-devel
+    7、 yum 的配置文件
+        /etc/yum.repos.d/CentOS-Base.repo
+        修改完配置文件后,清除一下本地yum缓存,然后重新加载
+        yum cleam all
+        yum makecache
+
+    8、 yum 的软件群组功能
+        yum [群组功能] [软件群组]
+        选项啊与参数:
+            grouplist   -   列出所有可用的软件群组
+            groupinfo   -   后面接group_name,可以查看group内含的所有软件名
+            groupinstall    -   直接安装一整组软件
+            groupremove     -   移除某个软件群组
+
+    9、 建立一个RPM 包过程
+        1)  准备tatball 源码包
+        2)  制作patch文件
+        3)  建立*.spec 配置文件
+        4)  编译成为 RPM 与 SRPM
+            rpmbuild -ba main.spec
+
+二十三、    X Window
+二十四、    内核编译
