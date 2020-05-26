@@ -46,3 +46,194 @@
             用户CPU时间     -   是执行用户指令所用的时间量
             系统CPU时间     -   是为该进程执行内核程序所经历的时间
             time 命令查看进程时间
+
+    6、 系统调用和库函数
+        1)  所有的操作系统都提供多种服务的入口点,由此程序向内核请求服务.各种版本的UNIX实现都提供
+            良好定义、数量有限、直接进入内核的入口点,这些入口点被称为系统调用.
+
+第二章、    UNIX标准及实现
+    1、 sysconf、pathconf和fpathconf 函数   -   获取系统的运行时限制值
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+        #include <unistd.h>
+        long sysconf(int name);
+        long pathconf(const char *pathname, int name);
+        log  fpathconf(int fd, int name);
+                                    3个函数返回值:成功返回相应值,出错,返回-1
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+        后面两个函数的差别是:一个用路径名作为其参数,另一个则取文件描述符做为参数.
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+        sysconf(int name) name的可传入值:
+                限制名                  说明                        name参数
+            ARG_MAX         exec函数的参数最大长度(字节)            _SC_ARG_MAX
+            ATEXIT_MAX      可用atexit函数登记的最大函数个数        _SC_ATEXIT_MAX
+            CHILD_MAX       每个实际用户ID的最大进程数              _SC_CHILD_MAX
+            时钟滴答/秒     每秒时钟的滴答数                        _SC_CLK_TCK
+            COLL_WEIGHTS_MAX在本地定义文件中可以赋予LC_COLLATE
+                            顺序关键字项的最大权重数                _SC_COLL_WEIGHTS_MAX
+            DELAYTIMER_MAX  定时器最大超限运行次数                  _SC_DELAYTIMER_MAX
+            HOST_NAME_MAX   gethostname函数返回的主机名最大长度     _SC_HOST_NAME_MAX
+            IOC_MAX         readv或writev函数可以使用最多的
+                            iovec结构的个数                         _SC_IOV_MAX
+
+            LINE_MAX        实用程序输入行的最大长度                _SC_LINE_MAX
+            LOGIN_NAME_MAX  登录名的最大长度                        _SC_LOGIN_NAME_MAX
+            NGROUPS_MAX     每个进程同时添加的最大进程组ID数        _SC_NGROUPS_MAX
+            OPEN_MAX        每个进程最大打开的文件数                _SC_OPEN_MAX
+            PAGESIZE        系统存储页长度(字节数)                  _SC_PAGESIZE
+            PAGE_SIZE       系统存储页长度(字节数)                  _SC_PAGE_SIZE
+            RE_DUP_MAX      regexec和regcomp允许的正则重复次数      _SC_RE_DUP_MAX
+            RTSIG_MAX       为应用程序预留的实时信号的最大个数      _SC_RTSIG_MAX
+            SEM_NSEMS_MAX   一个进程可使用的信号量最大个数          _SC_SEM_NSEMS_MAX
+            SEM_VALUE_MAX   信号量的最大值                          _SC_SEM_VALUE_MAX
+            SIGQUEUE_MAX    一个进程可排队信号的最大个数            _SC_SIGQUEUE_MAX
+            STREAM_MAX      一个_SC_STREAM_MAX进程在任意给定时刻    _SC_STREAM_MAX
+                            标准I/O流的最大个数,如果定义,必须与
+                            FOPEN_MAX的值相同
+
+            SYMLOOP_MAX     在解析路径名时,可遍历的符号链接数       _SC_SYMLOOP_MAX
+            TIMER_MAX       每个进程的最大定时器个数                _SC_TIMER_MAX
+            TTY_NAME_MAX    终端设备名长度,包括终止null字符         _SC_TTY_NAME_MAX
+            TZNAME_MAX      时区名中的最大字节数                    _SC_TZNAME_MAX
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+        pathconf() 和 fpathconf() 的限制及name参数:
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+                限制名              说明                                name参数
+            FILESIZEBITS    以带符号整型值表示在指定目录中允许的    _PC_FILESIZEBITS
+                            普通文件最大长度所需的最小位(bit)数     
+
+            LINK_MAX        文件链接计数的最大值                    _PC_LINK_MAX
+            MAX_CANON       终端规范输入队列的最大字节数            _PC_MAX_CANON
+            MAX_INPUT       终端输入队列可用空间的字节数            _PC_MAX_INPUT
+            NAME_MAX        文件名的最大字节数(不包括null)          _PC_NAME_MAX
+            PATH_MAX        相对路径名的最大字节数,包括null         _PC_PATH_MAX
+            PIPI_BUF        能原子的写到管道的最大字节数            _PC_PIPE_BUF
+            SYMLINK_MAX     符号链接的字节数                        _PC_SYMLINK_MAX
+            _POSIX_TIMESTAMP_RESOLUTION
+                            文件时间戳的纳秒精度                    _PC_TIMESTAMP_RESOLUTION
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+    2、 基本系统数据类型
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+            类型                说明
+        clock_t         时钟滴答计数器(进程时间)
+        comp_t          压缩的时钟滴答
+        dev_t           设备号(主和次)
+        fd_set          文件描述符集
+        fpos_t          文件位置
+        gid_t           数值组ID
+        ino_t           i节点编号
+        mode_t          文件类型,文件创建模式
+        nlink_t         目录项的链接计数
+        off_t           文件长度和偏移量(带符号的)(lseek)
+        pid_t           进程ID和进程组ID(带符号的)
+        pthread_t       线程ID
+        ptrdiff_t       两个指针相减的结果
+        rlim_t          资源限制
+        sig_atomic_t    能原子性的访问的数据类型
+        sigset_t        信号集
+        size_t          对象(如字符串)长度(不带符号的)
+        ssize_t         返回字节计数的函数(不带符号的)(read write)
+        time_t          日历时间的秒计数器
+        uid_t           数值用户ID
+        wchar_t         能表示所有不同的字符码
+        * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+第三章、    文件I/O
+    1、 函数open 和 openat
+        调用open 或 openat 函数可以打开或创建一个文件
+
+        #include <fcntl.h>
+        int open(const char *path, int oflag, ... /* mode_t mode */);
+        int openat(int fd, const char *path, int oflag, ... /* mode_t mode */);
+        
+        两个函数的返回值:
+            成功,返回文件描述符
+            失败,返回-1
+        参数详解:
+            path    -   要打开或者创建的文件名字
+            oflag   -   用来说明函数的多个选项(文件的打开模式)
+            fd      -   fd 参数把open和openat区别开,共有三种可能性:
+                        1)  path参数指定的是绝对路径名,在这种情况下,fd参数被忽略,openat = open
+                        2)  path是相对路径名,fd参数指出相对路径名在文件系统中的开始地址,fd参数是通过
+                            打开相对路径名所在的目录来获取
+                        3)  path指定相对路径名,fd参数具有特殊值AT_FDCWD,在这种情况下,路径名在当前工作
+                            目录中获取,openat 函数在操作上与open 函数类似
+
+            oflag 的可选值: (用下列一个或多个常量进行"或"运算来构成oflag参数)
+                O_RDONLY    -   只读打开
+                O_WRONLY    -   只写打开
+                O_RDWR      -   读、写打开
+                O_EXEC      -   只执行打开
+                O_SEARCH    -   只搜索打开(应用于目录)  -   常量的目的在于在目录打开时验证它的搜索权限
+
+                在以上5个常量中必须指定一个且只能指定一个,一下常量可选:
+
+                O_APPEND    -   每次写时都追加到文件的末尾
+                O_CLOEXEC   -   把FD_CLOEXEC常量设置为文件描述符标志
+                O_CREAT     -   若此文件不存在则创建,使用此选项时,open函数需同时说明第3个参数mode
+                                (openat函数需说明第4个参数mode),用mode指定该新文件的访问权限位
+                O_DIRECTORY -   如果path引用的不是目录,则出错
+                O_EXCL      -   如果同时指定了O_CREAT,而文件已经存在,则出错.用此可以测试一个文件是否
+                                存在,如果不存在,则创建此文件,这使测试和创建两者成一个原子操作
+                O_NOCTTY    -   如果path引用的是终端设备,则不将该设备分配作为此进程的控制终端
+                O_NOFLLOW   -   如果path引用的是一个符号链接,则出错
+                O_NONBLOCK  -   如果path引用的是一个FIFO、一个块特殊文件或一个字特殊文件,则此选项为
+                                文件的本次打开操作和后续的I/O操作设置非阻塞方式
+                O_SYNC      -   使每次write等待物理I/O操作完成,包括由该write操作引起的文件属性
+                                更新所需的I/O
+                O_TRUNC     -   如果此文件存在,而且为只写或读-写成功打开,则将其长度截断为0
+                O_TTY_INIT  -   如果打开一个还未打开的终端设备,设置非标准termios参数值,使其符合
+                                Single UNIX Specification.
+                O_DSYNC     -   使每次write要等待物理I/O操作完成,但是如果该写操作并不影响读取
+                                刚写入的数据,则不需要等待文件属性被更新 -   (与O_SYNC有区别)
+                O_RSYNC     -   使每一个以文件描述符作为参数进行的read操作等待,直至所有对文件同一
+                                部分挂起的写操作都完成
+
+            openat() 函数希望解决的问题:
+                1)  让线程可以使用相对路径名打开目录中的文件,而不再只能打开当前工作目录,在同一进程中
+                    的所以线程共享相同的当前工作目录,因此很难让同一个进程的多个不同线程在同一时间工作
+                    在不同的目录中
+                2)  可以避免time-of-check-to-time-of-use(TOCTTOU)错误
+                    TOCTTOU错误的基本思想是: 如果有两个基于文件的函数调用,其中第二个调用依赖于第一个
+                    调用的结果,那么程序是脆弱的,因为两个调用并不是原子操作,在两个函数调用之间文件可能
+                    改变了,这样也就造成了第一个调用的结果就不再有效,使得程序最终的结果是错误的.
+
+    2、 create 函数 -   创建一个新文件
+        
+        #include <fcntl.h>
+        int creat(const char *path, mode_t mode);
+
+        此函数等效于 open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
+        返回值:
+            成功,返回为只写打开的文件描述符
+            失败,返回-1
+
+        create的局限性在于创建的文件返回的文件描述符是以只写的方式打开的,如果对此文件有读的需求就
+        必须通过open函数。
+
+    3、 colse 函数  -   关闭一个打开的文件
+
+        #include <unistd.h>
+        int close(int fd);
+
+        返回值:
+            成功,返回0
+            失败,返回-1
+
+        关闭一个文件时,还会释放该进程加在该文件上的所有记录锁
+
+    4、 lseek   函数    -   设置文件偏移量
+        
+        #include <unistd.h>
+        off_t lseek(int fd, off_t offset, int whence);
+
+        注:
+            按系统默认的情况,当打开一个文件时,除非指定O_APPEND选项,否则该偏移量被设置为0
+            如果文件描述符指向的是一个管道、FIFO或网络套接字时,lseek返回-1,并将errno设置为ESPIPE
+        返回值:
+            成功,返回新的文件偏移量
+            失败,返回-1
+        参数:
+            若whence是 SEEK_SET, 则将该文件的偏移量设置为距文件开始处offset 个字节
+            若whence是 SEEK_CUR, 则将该文件的偏移量设置为其当前值加offset,offset可为正值或负值
+            若whence是 SEEK_END, 则将该文件的偏移量设置为文件长度加offset,offset可为正值或负值
