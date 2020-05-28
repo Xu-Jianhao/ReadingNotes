@@ -8,6 +8,7 @@ OBJ_O  = $(addprefix $(D_OBJ)/, $(patsubst %.c,%.o,$(notdir $(SRC_C))))
 include src/Chapter_1/Makefile
 include src/Chapter_2/Makefile
 include src/Chapter_3/Makefile
+include src/Chapter_4/Makefile
 
 $(info TATGET is ${TATGET})
 

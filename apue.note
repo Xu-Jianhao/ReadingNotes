@@ -8,10 +8,14 @@
 
     2、 出错处理
         打印出错信息的函数
-        1)  #include <string.h> -   char *strerror(int errnum);
+        1)  #include <string.h>
+            char *strerror(int errnum);
+            
             返回值: 指向错误信息字符串的指针
 
-        2） #include <stdio.h>  -   void perror(const char *msg);
+        2） #include <stdio.h>
+            void perror(const char *msg);
+            
             perror 函数基于errno的当前值,在标准错误上产生一条出错信息
             它首先输出由msg指向的字符串,然后是一个冒号一个空格,接着是对用于errno值的错误信息
 
@@ -192,7 +196,7 @@
 
             openat() 函数希望解决的问题:
                 1)  让线程可以使用相对路径名打开目录中的文件,而不再只能打开当前工作目录,在同一进程中
-                    的所以线程共享相同的当前工作目录,因此很难让同一个进程的多个不同线程在同一时间工作
+                    的所有线程共享相同的当前工作目录,因此很难让同一个进程的多个不同线程在同一时间工作
                     在不同的目录中
                 2)  可以避免time-of-check-to-time-of-use(TOCTTOU)错误
                     TOCTTOU错误的基本思想是: 如果有两个基于文件的函数调用,其中第二个调用依赖于第一个
@@ -423,3 +427,234 @@
         F_SETOWN    -   设置接受SIGNO 和 SIGURG信号的进程ID或进程组ID,正的arg值指定一个进程ID
                                                                       负的arg绝对值指定一个进程组ID
 
+第四章、    文件和目录
+    
+    1、 stat、fstat、fstatat 和 lstat 函数
+
+        #include <sys/stat.h>
+        int stat(const char *restrict pathname, struct stat *restrict buf);
+        int fstat(int fd, struct stat *buf);
+        int lstat(const char *restrict pathname, struct stat *restrict buf);
+        int fstatat(int fd, const char *restrict pathname, struct stat *restrict bug, int flag);
+
+        4个函数的返回值:
+            成功,返回0
+            失败,返回-1
+
+        函数说明:
+            stat    -   传入pathname, 函数返回与此文件有关的信息结构
+            fstat   -   传入一个已打开的文件描述符,返回该文件的有关信息
+            lstat   -   类似stat,但是当传入文件是一个符号链接时,lstat返回该符号链接的有关信息
+            fstatat -   返回相对于当前打开目录的路径名文件统计信息
+                        flag参数控制是否追踪一个符号链接,当AT_SYMLINK_NOFOLLOW标志被设置时,
+                        fstatat不会追踪符号链接,直接返回符号链接本身的信息,否则在默认情况下,返回的
+                        是符号链接所指向实际文件的信息.
+                        fd参数的值为AT_FDCWD时,并且pathname是一个相对路径名,fstatat会计算相对于当前
+                        目录的pathname参数;如果pathname是一个绝对路径,fd参数就会被忽略
+
+                        buf参数是一个指针,它指向一个我们提供的结构
+                        struct stat {
+                            mode_t          st_mode;    /* file type & mode (permissions) */
+                            ino_t           st_ino;     /* i_node number (serial number) */
+                            dev_t           st_dev;     /* device number (file system) */
+                            dev_t           st_rdev;    /* device number for special files(特殊文件) */
+                            nlink_t         st_nlink;   /* number of links (链接数)*/
+                            uid_t           st_uid;     /* user ID of owner */
+                            gid_t           st_gid;     /* group ID of owner */
+                            off_t           st_size;    /* size in bytes, for regular files
+                                                            (常规文件的字节大小) */
+                            struct timespec st_atime;   /* time of last access(使用) */
+                            struct timespec st_mtime;   /* time of last modification(修改) */
+                            struct timespec st_ctime;   /* time of last file status change(属性) */
+                            blksize_t       st_blksize; /* best I/O block size(最佳I/O块大小) */
+                            blkcnt_t        st_blocks;  /* number of disk blocks allocated
+                                                            (分配的磁盘块数)*/
+                        };
+                        struct timespec {
+                            time_t  tv_sec;     /* 秒 */
+                            long    tv_nsec;    /* 纳秒 */
+                        };
+
+    2、 文件类型
+        1)  普通文件(regular file)      -   包含文本或二进制数据的文件
+        2)  目录文件(directory file)
+        3)  块特殊文件(block special file)  -   这种类型的文件提供对设备(如磁盘)带缓冲的访问,
+                                                每次以固定长度单位访问
+        4)  字符特殊文件(character speaial file)    -   这种类型的文件提供对设备不带缓冲的访问,
+                                                        每次访问长度可变.系统中所有的设备要么是
+                                                        字符特殊文件,要么是块特殊文件
+        5)  FIFO                    -   这种类型的文件用于进程间通信,也叫命名管道
+        6)  套接字(socket)          -   这种类型的文件用于进程间的网络通信,也可用于本地
+        7)  符号链接(symbolic link) -   这种类型的文件指向另一个文件   
+
+        文件类型的信息包含在stat结构的st_mode成员中,可以用以下宏来确定文件类型,参数是st_mode:
+            S_ISREG()   -   普通文件
+            S_ISDIR()   -   目录文件
+            S_ISCHR()   -   字符特殊文件
+            S_ISBLK()   -   块特殊文件
+            S_ISFIFO()  -   管道或FIFO
+            S_ISLNK()   -   符号链接
+            S_ISSOCK()  -   套接字
+
+        IPC -   进程通信
+        确定IPC对象类型的宏,参数是指向stat结构的指针:
+            S_TYPEISMQ()    -   消息队列
+            S_TYPEISSEM()   -   信号量
+            S_TYPEISSHM()   -   共享存储对象
+
+    3、 umask 函数      -   为进程设置文件模式创建屏蔽字
+        
+        #include <sys/stat.h>
+        mode_t umask(mode_t cmask);
+
+        返回值:
+            之前的文件模式创建屏蔽字
+            出错不返回
+        注:
+            这是少数几个没有出错返回函数中的一个
+            在进程创建一个新文件或新目录时,就一定会使用文件模式创建屏蔽字.
+
+        参数cmask 由下列列出的9个常量中的若干个按位“或”构成
+                st_mode 屏蔽    -   含义
+                S_IRUSR         -   用户读
+                S_IWUSR         -   用户写
+                s_IXUSR         -   用户执行
+                S_IRGRP         -   组读
+                S_IWGRP         -   组写
+                S_IXGRP         -   组执行
+                S_IROTH         -   其他读
+                S_IWPTH         -   其他写
+                S_IXOTH         -   其他执行
+            想屏蔽什么权限就传入什么以上什么值.
+
+        umask 命令打印当前shell进程的文件模式创建屏蔽字,其值是八进制表示,如下:
+            屏蔽位      -       含义
+            0400        -       用户读
+            0200        -       用户写
+            0100        -       用户执行
+            0040        -       组读
+            0020        -       组写
+            0010        -       组执行
+            0004        -       其他读
+            0002        -       其他写
+            0001        -       其他执行
+
+    4、 chmod、fchmod 和 fchmodat 函数  -   更改现有文件的访问权限
+        
+        #include <sys/stat.h>
+        int chmod(const char *pathname, mode_t mode);
+        int fchmod(int fd, mode_t mode);
+        int fchmodat(int fd, const char *pathname, mode_t mode, int flag);
+
+        3个函数的返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            chmod   -   在指定的文件上操作
+            fchmod  -   对已打开的文件操作
+            fchmodat    -   在pathname参数为绝对路径时,fd参数取值为AT_FDCWD而pathname参数为相对路径时
+                            与chmod函数无差别
+                            否则fchmodat计算相对于打开目录(由fd参数指向)的pathname,
+                            flag参数可以改变fchmodat的行为,当设置了AT_SYMLINK_NOFOLLOW标志时
+                            函数不会追踪符号链接
+
+    5、 chown、fchown、fchownat 和 lchown 函数  -   用于更改文件的用户ID和组ID
+
+        #include <unistd.h>
+        int chown(const char *pathname, uid_t owner, gid_t group);
+        int fchown(int fd, uid_t owner, gid_t group);
+        int fchownat(int fd, const char *pathname, uid_t owner, gid_t group, int flag);
+        int lchown(const char *pathname, uid_t owner, gid_t group);
+
+        4个函数的返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            两个参数owner 或 group 中的任意一个传入值是-1时,对应ID的不变.
+            在传入文件是符号链接的情况下,lchown 和 fchownat(设置了AT_SYMLINK_NOFOLLOW标志)更改符号链接
+            本身的所有者,不更改所指向文件
+
+            fchown      -   改变fd参数所指向的打开文件的所有者,不能用于改变符号链接的所有者
+
+    6、 文件长度
+        stat结构成员st_size表示以字节为单位的文件长度,此字段只对普通文件、目录文件和符号链接有意义
+        普通文件,文件长度可以是0,在读这种文件时,将得到文件结束(end-of-file)提示
+        符号链接,文件长度是指向文件在文件名中的实际字节数 lib -> usr/lib 则lib的文件长度为7
+        目录文件,文件长度通常是一个数(如16或512)的整倍数
+
+    7、 文件截断
+    
+        #include <unistd.h>
+        int truncate(const char *pathname, off_t length);
+        int ftruncate(int fd, off_t length);
+
+        两个函数的返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            用于截断文件,将现有的文件长度截断为length,如果该文件以前的长度大于length,则超过length以外
+            的数据就不能访问了;如果文件长度小于length,文件的长度将增加,在以前文件尾端和新文件的尾端之间
+            的数据将读作0,也就是有可能在文件中创建了一个空洞.
+
+    8、 文件系统
+        a.  对一个文件进行重命名操作时,不移动(在同一文件系统中)文件本身,只是创建一个指向现有i节点的
+            新目录项,并删除旧的目录项   (mv命令)
+
+        b.  任何一个不包含子目录的目录文件,它的链接计数都为2,新增一个子目录,链接计数加1
+            一个链接是目录自己本身的名字,另一个是目录中的".",当新增子目录时,子目录中的".."也指向父目录
+
+    9、 link、linkat、unlink、unlinkat 和 remove 函数
+
+        #include <unistd.h>
+        int link(const char *existingpath, const char *newpath);
+        int linkat(int efd, const char *existingpath, int nfd, const char *newpath, int flag);
+
+        两个函数的返回值:
+            成功,返回0
+            出错,返回-1
+        
+        函数说明:
+            任何一个文件可以有多个目录项指向其i节点,上述函数可以创建一个指向现有文件的目录项
+
+            参数newpath引用现有文件existingpath,如果newpath已经存在,则返回出错.只创建newpath中的
+            最后一个分量,路径中的其他部分应当已经存在.
+
+            对于linkat函数,现有文件是通过efd和existingpath参数指定的,新的路径名是通过nfd和newpath参数
+            指定的.默认情况下,如果两个文件描述符中的任意一个是相对路径,那么它需要通过相对于对应的文件
+            描述符进行计算;
+            如果两个文件描述符中的任意一个设置为AT_FDCWD,那么相对应的路径名(相对路径)就通过相对于当前
+            目录进行计算;
+            如果任意一路径名是绝对路径,相对应的文件描述符参数就会被忽略.
+
+            当现有文件是符号链接时,flag参数来控制linkat函数是创建指向现有符号链接的链接还是创建指向现有
+            符号链接所指向文件的链接.设置AT_SYMLINK_FOLLOW标志,就创建指向原文件的链接.
+
+
+        #include <unistd.h>
+        int unlink(const char *pathname);
+        int unlinkat(int fd, const char *pathname, int flag);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            删除一个现有的目录项,即链接计数减-
+
+        *在一个文件有被任意一进程打开的情况下,即使链接计数为0,该文件也不会被立即删除
+        *在删除一个文件时,内核会先检查的进程使用计数,当进程使用计数为0时,才会去检查链接计数
+        *进程临时文件的做法
+            创建一个临时文件,然后立即调用unlink,这样保证即使在程序崩溃的情况下,临时文件也会被删除
+
+        #include <stdio.h>
+        int remove(const char *pathname);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            解除对一个文件或目录的链接.对于文件remove的功能和unlink相同,对于目录,remove和rmdir功能相同.
