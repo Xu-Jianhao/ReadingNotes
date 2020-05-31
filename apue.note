@@ -658,3 +658,216 @@
 
         函数说明:
             解除对一个文件或目录的链接.对于文件remove的功能和unlink相同,对于目录,remove和rmdir功能相同.
+
+    10、    rename 和 renameat 函数 -   对文件或目录进行重命名
+        
+        #include <stdio.h>
+        int rename(const char *oldname, const char *newname);
+        int renameat(int oldfd, const char *oldname, int newfd, const char *newname);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        注:
+            a.  如果oldname指的是一个文件(文件或符号链接)而不是目录,在这种情况下,如果newname已经存在,
+                而且不是一个目录,则先将该文件删除然后将oldname重命名为newname
+
+            b.  如果oldname指的是一个目录,如果newname已经存在,则它必须引用一个目录,而且该目录应当是空
+                目录,如果newname存在,而且是一个空目录,则先将其删除,然后将oldname重命名为newname
+
+            c.  如果oldname或newname引用符号链接,则处理的是符号链接本身,而不是它引用的文件
+
+            d.  不能对.和..重命名
+
+            e.  如果oldname 和 newname 引用同一文件,则函数不做任何改动而成功返回.
+
+    11、    符号链接(软链接)
+        符号链接是对一个文件的间接指针,硬链接直接指向文件的i节点.
+        a.  硬链接通常要求链接和文件位于同一文件系统中.
+        b.  只有超级用户才能创建指向目录的硬链接
+        c.  符号链接不受文件系统的限制,且任何用户都可以创建指向目录的符号链接
+        d.  符号链接一般用于将一个文件或整个目录结构移到系统中另一个位置
+
+    12、    创建和读取符号链接
+
+        #include <unistd.h>
+        int symlink(const char *actualpath, const char *sympath);
+        int symlinkat(const char *actualpath, int fd, const char *sympath);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            上述两个函数可以用来创建一个符号链接.
+            函数创建了一个指向actualpath的新目录项sympath,在创建此符号链接时,并不要求actualpath已经存在
+            并且actualpath和sympath并不需要位于同一个文件系统中.
+
+        #include <unistd.h>
+        ssize_t readlink(const char *restrict pathname, char *restrict buf, size_t bufsize);
+        ssize_t readlinkat(int fd, const char *restrict pathname, char *restrict buf, size_t bufsize);
+
+        返回值:
+            成功,返回读取的字节数
+            出错,返回-1
+
+        函数说明:
+            因为open函数会追踪符号链接,所以需要一种方法可以打开链接本身,并读取链接中的名字.
+            两个函数组合了open、read和close的所有操作,如果函数执行成功,则返回读入buf的字节数
+
+    13、    文件的时间
+        每个文件维护了3个时间字段:
+        st_atime    -   文件数据的最后访问时间,如read函数, ls -u查看
+        st_mtime    -   文件数据的最后修改时间,如write函数, ls 默认显示
+        st_ctime    -   i节点状态的最后更改时间(文件属性的修改时间),如chmod、chown, ls -c 可查看
+
+    14、    futimens、utimensat 和 utimes 函数
+
+        #include <sys/stat.h>
+        int futimens(int fd, const struct timespec times[2]);
+        int utimensat(int fd, const char *path, const struct timespec times[2], int flag);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            用于修改文件的访问时间的最后更改时间,所用数据结构是与stat函数族相同的timespec结构
+            参数times数组第一个元素包含访问时间,第二个元素包含最后更改时间,这两个时间值是日历时间,
+            自特定时间(1970年1月1日00:00:00)以来所经过的秒数,不足秒用纳秒表示
+            tiems参数传入值按下列4种方式指定:
+            a.  如果times参数是一个空指针,则修改访问时间和最后更改时间为当前时间
+            b.  如果times参数指向两个timespec结构的数组,任一数组元素的tv_nsec字段值为UTIME_NOW,则修改
+                相对应的时间戳为当前时间,忽略相应的tv_sec字段
+            c.  如果times参数指向两个timespec结构的数组,任一数组元素的tv_nsec字段值为UTIME_OMIT,则
+                相对应的时间戳保持不变,忽略相应的tv_sec字段
+            d.  如果times参数指向两个timespec结构的数组,且tv_nsec字段既不是UTIME_NOW也不是UTIME_OMIT,
+                则修改对应时间戳为相应的tv_sec 和 tv_nsec 字段的值
+
+            futimens 函数需要打开文件来更改它的时间,utimensat函数提供了一种使用文件名更改文件时间的方法
+            utimensat 函数的flag参数可用于进一步修改默认行为,如果设置了AT_SYMLINK_NOFOLLOW标志,则符号
+            链接本身的时间就会被修改(如果路径名指向符号链接),默认的行为是追踪符号链接,并把文件的时间修改
+            为符号链接的时间.
+
+        #include <sys/time.h>
+        int utimes(const char *pathname, const struct timeval times[2]);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            utimes参数包含的两个时间戳是struct timeval结构,使用秒和微妙表示的
+            struct timeval {
+                time_t tv_sec;  /* seconds */
+                long tv_usec;   /* microseconds */
+            };
+            状态时间不能用指定值来修改,当调用utimes函数时,文件的状态时间会被自动更新
+
+    15、    mkdir、mkdirat 和 rmdir 函数
+
+        #include <sys/stat.h>
+        int mkdir(const char *pathname, mode_t mode);
+        int mkdirat(int fd, const char *pathname, mode_t mode);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            上述两函数可用于创建目录,所指定的文件访问权限mode由进程的文件模式创建屏蔽字修改
+
+        #include <unistd.h>
+        int rmdir(const char *pathname);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            用rmdir可以删除一个空目录,空目录是只包含.和..这两项的目录
+
+    16、    读目录
+
+        #include <dirent.h>
+        DIR *opendir(const char *pathname);
+        DIR *fdopendir(int fd);
+
+        返回值:
+            成功,返回指针
+            出错,返回NULL
+        
+        struct dirent *readdir(DIR *dp);
+
+        返回值:
+            成功,返回指针
+            出错或者在目录尾,返回NULL
+
+        void rewinddir(DIR *dp);
+        int closedir(DIR *dp);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        long telldir(DIR *dp);
+
+        返回值:
+            返回与dp关联的目录中的当前位置
+
+        void seekdir(DIR *dp, long loc);
+
+        函数说明:
+            fdopendir   -   可以把打开的文件描述符转换成目录处理函数需要的DIR结构
+            readdir     -   读取目录中的第一个目录项
+
+    17、    chdir、fchdir 和 getcwd 函数
+        每个进程都有一个工作目录,此目录是搜索所有相对路径名的起点,当前工作目录是进程的一个属性.
+        当用户登录到unix系统时,其当前目录通常是/etc/passwd中该用户登录项的第6个字段-用户的起始目录.
+
+        #include <unistd.h>
+        int chdir(const char *pathname);
+        int fchdir(int fd);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            进程调用chdir或fchdir函数可以更改当前的工作目录.
+            这两个函数中,分别用pathname或打开的文件描述符来指定新的当前工作目录
+
+        #include <unistd.h>
+        char *getcwd(char *buf, size_t size);
+
+        返回值:
+            成功,返回buf
+            出错,返回NULL
+
+        函数说明:
+            返回进程当前工作目录完整的路径名.
+            参数buf     -   缓冲区地址
+            参数size    -   缓冲区长度
+
+        注:
+            chdir 追踪符号链接,但是getcwd不追踪符号链接
+            当一个应用程序需要在文件系统中返回到它工作的出发点时,在更换工作目录之前先调用getcwd保存
+            当前工作目录路径,在完成处理后把它传送个chdir,这样就返回到进程的出发点.
+
+    18、    设备特殊文件
+        st_dev  -   存储【非】字特殊文件和块特殊文件的主、次设备号
+        st_rdev -   存储字特殊文件和块特殊文件次设备号
+
+        每个文件系统所在的存储设备都是由主、次设备号表示.
+        主设备号标识设备的驱动程序,有时编码为与其通信的外设备
+        次设备号标识特定子设备.
+        例如在同一磁盘驱动器上的各个文件系统通常具有相同的主设备号,但是次设备号却不同
+
+        设备号的获取方法:
+            major 宏,来访问主设备号     -   major(statbuf.st_dev) minor(statbuf.st_dev)
+            minor 宏,来访问次设备号     -   major(statbuf.st_rdev) minor(statbuf.st_rdev)
+
+        系统中也每个文件名关联的st_dev值是文件系统的设备号,该文件系统包含了这一文件名以及其对应i节点
+
+        只有字符特殊文件和块特殊文件才有st_rdev值,此值包含实际设备的设备号
