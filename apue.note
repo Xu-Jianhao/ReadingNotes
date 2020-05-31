@@ -871,3 +871,126 @@
         系统中也每个文件名关联的st_dev值是文件系统的设备号,该文件系统包含了这一文件名以及其对应i节点
 
         只有字符特殊文件和块特殊文件才有st_rdev值,此值包含实际设备的设备号
+
+第五章、    标准I/O库
+
+    1、 流和FILE对象
+        对于ASCII字符集,一个字符用一个字节表示
+        对于国际字符集,一个字符可以用多个字节表示
+        标准I/O文件流可用于单字节或多字节("宽")字符集
+        I/O函数分为多字节I/O函数(<wchar.h>)和单字节I/O函数
+
+        fopen   -   打开一个流
+        freopen -   清除一个流的定向
+        fwide   -   设置或返回一个流的定向
+
+
+        #include <stdio.h>
+        #include <wchar.h>
+        int fwide(FILE *fp, int mode);
+
+        返回值:
+            若流是宽定向的,返回正值
+            若流是字节定向的,返回负值
+            若流是未定向的,返回0
+
+        函数说明:
+            fwide函数可用于设置流的定向
+            根据mode参数的不同值,fwide函数执行不同的工作:
+                a.  mode参数值为负,fwide将试图将指定的流设置为字节定向的
+                b.  mode参数值为正,fwide将试图将指定的流设置为宽定向的
+                c.  mode参数值为0,fwide将返回指定流的定向方式
+
+        注:
+            fwide并不改变已定向流的定向,且无出错返回,使用时应先清除errno,然后调用后检查errno来判读是否成功
+
+    2、 标准输入、标准输出和标准错误
+                                            对应的文件指针
+        STDIN_FILENO    -   标准输入    -       stdin
+        STDOUT_FILENO   -   标准输出    -       stdout
+        STDERR_FILENO   -   标准错误    -       stderr
+
+    3、 缓冲
+        标准I/O库提供缓冲的目的是尽可能的减少read和write的调用次数
+        标准I/O提供了以下3种类型的缓冲:
+        1)  全缓冲  -   在填满标准I/O的缓冲区后才进行实际I/O操作,对于驻留在磁盘上的文件通常是全缓冲的
+                        在一个流上执行第一次I/O操作时,相关标准I/O函数通常调用malloc来获得缓冲区
+                        调用fflush函数可以冲洗一个流,将缓冲区的数据冲洗到磁盘上
+
+        2)  行缓冲  -   当在输入和输出中遇到换行符时,才执行实际的I/O操作,通常当流涉及到一个终端时,使用
+                        行缓冲.
+
+        3)  不带缓冲
+
+        注:
+            (系统默认)
+            a.  标准错误流stderr通常是不带缓冲的
+            b.  若是指向终端设备的流,则是行缓冲的;否则是全缓冲的
+
+        #include <stdio.h>
+        void setbuf(FILE *restrict fd, char *restrict buf);
+        int setvbuf(FILE *restrict fd, char *restrict buf, int mode, size_t size);
+    
+        返回值:
+            成功,返回0
+            出错,返回非0
+
+        函数说明:
+            用于修改系统默认的流的缓冲类型
+            这些函数一定要在流被打开以后使用
+
+            setbuf  -   用以打开或关闭缓冲机制,参数buf指向一个长度为BUFSIZE的缓冲区(该常量定义
+                        在<stdio.h>中).
+                        关闭缓冲可以将buf设置为NULL
+
+            setvbuf -   可以精确的设置缓冲类型,mode参数来说明:
+                        _IOFBF  -   全缓冲
+                        _IOLBF  -   行缓冲
+                        _IONBF  -   不带缓冲
+                        指定一个不带缓冲的流时,忽略buf和size参数
+                        指定全缓冲或行缓冲时,buf和size可选择的指定一个缓冲区的及其长度
+                        若指定流是带缓冲的,而buf传入NULL,则标准I/O库将自动的为该流分配适当长度的缓冲区,
+                        通常是常量BUFSIZE的值
+        
+        #include <stdio.h>
+        int fflush(FILE *fp);
+
+        返回值:
+            成功,返回0
+            出错,返回EOF
+
+        函数说明:
+            强制冲洗一个流,此函数使该流所有未写的数据都被传送至内核
+            当参数fp传入NULL时,将导致所有的输出流被冲洗.
+
+    4、 打开流
+
+        #include <stdio.h>
+        FILE *fopen(const char *restrict pathname, const char *restrict type);
+        FILE *freopen(const char *restrict pathname, const char *restrict type, FILE *restrict fp);
+        FILE *fdopen(int fd, const char *type);
+
+        返回值:
+            成功,返回文件指针
+            出错,返回NULL
+
+        函数说明:
+            以上3个函数用于打开一个标准I/O流
+            3个函数的区别:
+                1)  fopen函数打开路径名为pathname的一个指定的文件
+                2)  freopen函数在一个指定的流上打开一个指定的文件,如果该流已经打开,则先关闭该流;
+                    若流已经定向,则使用freopen清除该定向,此函数一般用于将一个指定的文件打开为一个
+                    预定义的流:标准输入、标准输出或标准错误
+                3)  fdopen函数取一个已有的文件描述符,并使一个标准的I/O流与该描述符相结合.
+                    此函数常用于由创建管道和网络通信通道函数返回的文件描述符,因为这些特殊类型的文件不能
+                    用标准I/O函数fopen打开.
+
+        #include <stdio.h>
+        int fclose(FILE *fp);
+
+        返回值:
+            成功,返回0
+            出错,返回EOF
+
+        函数说明:
+            关闭一个打开的流
