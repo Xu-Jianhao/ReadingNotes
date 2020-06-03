@@ -1319,3 +1319,218 @@
                 b.  不能指定自己的缓冲区,但是可以分别通过bufp和sizep参数访问缓冲区地址和大小
                 c.  关闭流后需要自行释放缓冲区
                 d.  对流添加字节会增加缓冲区的大小
+
+第六章、系统数据文件和信息
+    1、 口令文件(用户数据库)
+        <pwd.h>中的passwd结构:
+            char    *pw_name    -   用户名
+            char    *pw_passwd  -   加密口令
+            uid_t   pw_uid      -   数值用户ID
+            gid_t   pw_gid      -   数值组ID
+            char    *pw_gecos   -   注释字段
+            char    *pw_dir     -   初始工作目录
+            char    *pw_shell   -   初始shell
+            char    *pw_class   -   用户访问类
+            time_t  pw_change   -   下次口令修改时间
+            time_t  pw_expire   -   账户有效期时间
+
+        #include <pwd.h>
+        struct passwd *getpwuid(uid_t uid);
+        struct passwd *getpwnam(const char *name);
+
+        返回值:
+            成功,返回指向struct passwd结构的指针
+            出错,返回NULL
+
+        函数说明:
+            在给出用户登录名或数值用户ID后,获取相关的struct passwd结构
+            getpwuid函数由ls程序使用,它将i节点中的用户ID映射为用户登录名
+            在输入登录名时,getpwnam函数由login程序使用
+
+        #include <pwd.h>
+        struct passwd *getpwent(void);  -   成功,返回指针;出错或到达文件尾端,返回NULL
+        void setpwdent(void);
+        void endpwent(void);
+
+        函数说明:
+            查看整个口令文件
+            getpwent    -   返回口令文件中的下一个记录项,在第一次调用时,它打开它所使用的各个文件
+            setpwent    -   
+            endpwent    -   关闭getpwnet打开的文件,一般在调用getpwent结束之后调用
+
+    2、 阴影口令    -   shadow password
+        /etc/shadow文件中的字段和struct spwd结构中的成员:
+        用户登录名                  -   char    *sp_namp
+        加密口令                    -   char    *sp_pwdp
+        上次更改口令以来经过的时间  -   int     sp_lstchg
+        经多少天后允许更改          -   int     sp_min
+        要求更改剩余天数            -   int     sp_max
+        超期警告天数                -   int     sp_warn
+        账户不活动之前的剩余天数    -   int     sp_inact
+        账户超期天数                -   int     sp_expire
+        保留字段                    -   unsigned int sp_flag
+
+        #include <shadow.h>
+        struct spwd *getspnam(const char *name);
+        struct spwd *getspent(void);
+        void setspent(void);
+        void endspent(void);
+
+        前两个函数的返回值:
+            成功,返回指针
+            出错,返回NULL
+
+        函数说明:
+            用于访问阴影口令文件/etc/shadow
+
+    3、 组文件  -   /etc/group
+        
+        /etc/group文件中的字段,包含在<grp.h>中所定义的group结构中
+        char    *gr_name    -   组名
+        char    *gr_passwd  -   加密口令
+        int     gr_gid      -   数值组ID
+        char    **gr_mem    -   指向各用户名指针的数组,其中每个指针指向一个属于该组的用户名
+
+        #include <grp.h>
+        struct group *getgrgid(gid_t gid);
+        struct group *getgrnam(const char *name);
+
+        返回值:
+            成功,返回指向struct group的指针,该指针指向静态变量,每次调用时重写该静态变量
+            出错,返回NULL
+
+        函数说明:
+            传入gid 或 组名,获取struct group结构体
+
+        #include <grp.h>
+        struct group *getgrent(void);   -   成功,返回下一个组信息的指针;出错或到达文件尾端,返回NULL
+        void setgrent(void);
+        void endgrent(void);
+
+        函数说明:
+            获取整个组文件
+            setgrent    -   打开组文件并反绕它(?)
+            getgrent    -   从组文件中读出下一个记录,如果该文件尚未打开,就先打开它
+            endgrent    -   关闭组文件
+
+    4、 附属组ID
+        每个用户除了属于口令文件记录项中组ID所对应的组之外,还可以属于16个另外的组
+
+        #include <unistd.h>
+        int getgroups(int gidsetsize, gid_t grouplist[]);   -   成功,返回附属组ID数量;出错,返回-1
+
+        #include <grp.h>    /* on Linux */
+        #include <unistd.h> /* on FreeBSD, Mac OS X, and Solaris */
+        int setgroups(int ngroups, const gid_t grouplist[]);
+
+        #include <grp.h>    /* on Linux and Solaris */
+        #include <unistd.h> /* on FreeBSD and Mac OS X */
+        int initgroups(const char *username, gid_t basegid);
+
+        后两个函数的返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            getgroups   -   将进程所属用户的各个附属组ID填写到数组grouplist中,填写入该数组的附属组ID数
+                            最多为gifsetsize个;实际填写到数组中的附属组ID数由函数返回值返回.
+                            当gidsetsize传入为0时,函数只返回附属组ID数
+
+            setgroups   -   可由超级用户调用以便为调用进程设置附属组ID表
+                            grouplist是组ID数组;
+                            ngroups说明数组中的元素个数,且ngroups值不能大于NGROUPS_MAX
+
+            initgroups  -   通常只有initgroups函数调用setgroups,initgroups读整个组文件(用getgrent、
+                            setgrent和endgrent),然后对username确定其组的成员关系.然后调用setgroups,
+                            以便为该用户初始化附属组ID表
+
+    5、 时间和日期例程
+
+        #include <time.h>
+        time_t time(time_t *calptr);
+
+        返回值:
+            成功,返回当前时间值
+            出错,返回-1
+
+        函数说明:
+            time函数返回当前时间和日期
+            时间值作为函数值返回,如果参数非空,则时间值也存放在由calptr指向的单元内
+
+        时钟通过clockid_t 类型标识:
+        CLOCK_REALTIME                                              -   实时系统时间
+        CLOCK_MONOTONIC             -   _POSIX_MONOTONIC_CLOCK      -   不带负跳数的实时系统时间
+        CLOCK_PROCESS_CPUTIME_ID    -   _POSIX_CPUTIME              -   调用进程的CPU时间
+        CLOCK_THREAD_CPUTIME_ID     -   _POSIX_THREAD_CPUTIME       -   调用线程的CPU时间
+
+        #include <sys/time.h>
+        int clock_gettime(clockid_t clock_id, struct timespec *tsp);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+        
+        函数说明:
+            clock_gettime函数可用于获取指定时钟的时间,返回的时间在timespec结构中,表示为秒和纳秒
+            当clock_id设置为CLOCK_REALTIME时,与time函数类似,精度更高
+
+        #include <sys/time.h>
+        int clock_getres(clockid_t clock_id, struct timespec *tsp);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            clock_getres函数把参数tsp指向的timespec结构初始化为与clock_id参数对应的时钟精度
+
+        #include <sys/time.h>
+        int clock_settime(clockid_t clock_id, const struct timespec *tsp);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            对特定的时钟设置时间
+
+        struct tm {         /* 存放时间的结构体 */
+            int     tm_sec;     /* seconds after the minute: [0 - 60] */
+            int     tm_min;     /* minutes after the hour: [0 - 59] */
+            int     tm_hour;    /* hours after midnight: [0 - 23] */
+            int     tm_mday;    /* day of the month: [1 - 31] */
+            int     tm_mon;     /* months since January: [0 - 11] */
+            int     tm_year;    /* years since 1900 */
+            int     tm_wday;    /* days since Sunday: [0 - 6] */
+            int     tm_yday;    /* days since January 1: [0 - 365] */
+            int     tm_isdst;   /* daylight saving time flag: <0, 0, >0 */
+        };
+
+        #include <time.h>
+        struct tm *gmtime(const time_t *calptr);
+        struct tm *localtime(const time_t *calptr);
+
+        返回值:
+            成功,指向分解的tm结构指针
+            出错,返回NULL
+
+        函数说明:
+            localtime   -   将日历时间转换为本地时间(考虑到本地时区和夏令时标志)
+            gmtime      -   将日历时间转换为协调统一时间的年、月、日、时、分、秒、周日分解结构
+
+        #include <time.h>
+        time_t mktime(struct tm *tmptr);
+
+        返回值:
+            成功,返回日历时间
+            出错,返回-1
+
+        函数说明:
+            mktime函数以本地时间的年、月、日等作为参数,将其转换成time_t值
+
+        size_t strftime(char *restrict buf, size_t maxsize, const char *restrict format,
+                        const struct tm *restrict tmptr);
+        size_t strftime_l(char *restrict buf, size_t maxsize, const char *restrict format,
+                        const struct tm *restrict tmptr, locale_t locale);
+        char *strptime(const char *restrict buf, const char *restrict format, 
+                        struct tm *restrict tmptr);
