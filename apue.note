@@ -1534,3 +1534,296 @@
                         const struct tm *restrict tmptr, locale_t locale);
         char *strptime(const char *restrict buf, const char *restrict format, 
                         struct tm *restrict tmptr);
+
+第七章、    进程环境
+    1、 进程终止
+        进程终止的8种方式:
+            正常终止:
+                1)  从main返回
+                2)  调用exit
+                3)  调用_exit 或 _Exit
+                4)  最后一个线程从其启动例程返回
+                5)  从最后一个线程调用pthread_exit
+            异常终止:
+                6)  调用abort
+                7)  接到一个信号
+                8)  最后一个线程对取消请求做出响应
+
+        1\  退出函数
+
+            #include <stdlib.h>
+            void exit(int status);
+            void _Exit(int status);
+            #include <unistd.h>
+            void _exit(int status);
+
+            函数说明:
+                3个函数用于正常终止一个程序
+                _exit 和 _Exit 立即进入内核
+                exit 则先执行一些清理处理,然后返回内核;执行一个标准I/O库的清理关闭操作,
+                        对所有打开的流调用fclose函数.
+
+                3个函数都带一个整型参数,称为终止状态(exit status)
+
+        2\  函数 atexit
+            ISO C规定,一个进程最多可以登记32个函数,这些函数将由exit自动调用.
+            我们称这些函数为终止处理程序(exit handler),并调用atexit函数来登记这些函数
+
+            #include <stdlib.h>
+            int atexit(void (*func)(void));
+
+            返回值:
+                成功,返回0
+                出错,返回非0
+
+            函数说明:
+                atexit的参数是一个函数地址,当调用此函数时无需向他传递任何参数,也不期望它返回一个值.
+                exit调用这些函数的顺序与它们登记的时候的顺序相反,同一函数如若登记多次,也会被调用多次.
+
+            一个C程序如何启动:
+                1)  内核开始,调用exec函数族中一个,启动一个C启动例程
+                2)  C启动例程调用main函数,main函数再调用其他用户函数
+            C程序的终止方式:
+                3)  C启动例程、main函数和用户函数调用exit函数,
+                    然后exit函数调用终止处理程序和标准I/O清理程序,
+                    清理程序返回之后,由exit函数返回内核,_exit或_Exit
+                4)  也可由mian函数或用户函数直接调用_exit或_Exit直接返回内核
+
+            atexit函数测试程序,见Chapter_7/atexit.c
+
+    2、 命令行参数  char *argv[]
+        当执行一个程序时,调用exec的进程可将命令行参数传递给该新程
+        ISO C和POSIX.1要求argv[argc]是一个空指针,即argv数组以NULL结尾
+
+    3、 环境表
+        每个程序都接收到一张环境表,与参数表一样,环境表也是一个字符指针数组,其中每个指针包含一个
+        以null结束的C字符串的地址,全局变量environ则包含了该指针数组的地址
+            extern char **environ;
+        可使用getenv 和 putenv函数来访问特定的环境变量,当要查看整个环境时,使用environ指针
+
+    4、 C程序的存储空间布局
+        C程序的组成部分:
+            1)  正文段  -   这是由CPU执行的机器指令部分,通常是可共享的,频繁被执行的程序在存储器中
+                            只需要保留一个副本,只读属性,防止被修改
+            2)  初始化数据段    -   也称为数据段,包含了程序中需明确的赋初值的变量
+            3)  未初始化数据段  -   也称为bss(block started by symbol)段,在程序开始执行之前,内核通过
+                                    exec将此段中的数据初始化为0或空指针
+
+            4)  栈      -   自动变量以及每次函数调用时所需保存的信息都存放在此段中.
+                            每次函数调用时,其返回地址以及调用者的环境信息(如某些机器寄存器的值)都存放
+                            在栈中,然后,最近被调用的函数在栈上为其自动和临时变量分配存储空间.
+                            递归函数每次调用自身时,就用一个新的栈帧,因此一次函数调用实例中的变量集不会
+                            影响另一次函数调用实例中的变量.
+
+            5)  堆      -   通常在堆中进行动态存储分配,位于未初始化数据段和栈之间
+
+        注:
+            栈从高地址向低地址方向增长,堆从低地址向高地址方向增长,
+            通常,堆顶和栈顶之间未使用的虚拟地址空间很大
+            未初始化数据段的内容并不存在在磁盘程序文件中,需要存放在磁盘程序文件中的段只有正文段
+            和初始化数据段
+
+            size 命令报告正文段、数据段、和未初始化数据段的长度
+            size /usr/bin/cc    执行结果:
+            text       data     bss     dec     hex filename
+            755125     8536   81856  845517   ce6cd /usr/bin/cc
+
+            text    -   正文段
+            data    -   初始化数据段
+            bss     -   未初始化数据段
+            dec     -   十进制3段总长度
+            hex     -   十六进制3段总长度
+
+    5、 共享库
+        可执行文件中不再需要包含公用的库函数,只需要在所有进程都可以引用的存储区中保存这种库例程的一个
+        副本,程序第一次执行或者第一次调用某个库函数时,用动态链接方法将程序与共享库函数相链接.
+        特点:
+            1)  减少了每个可执行文件的长度
+            2)  增加了第一次运行时间的开销
+            3)  当共享库发生变换时,无需重新编译可执行文件
+
+        gcc -static 选项组织gcc使用动态共享库
+
+    6、 存储空间分配
+        3个用于存储空间动态分配的函数
+        1)  malloc  -   分配指定字节数的存储区,此存储区中的初始值不确定
+        2)  calloc  -   为指定数量指定长度的对象分配存储空间,该空间中的每一位(bit)都初始化为0
+        3)  realloc -   增加或减少以前分配区的长度,当增加长度时,可能需要将以前分配区的内容移动到
+                        另一个足够大的区域,以便在尾端提供增加的存储区,而新增区域内的初始值则不确定.
+
+        #include <stdlib.h>
+        void *malloc(size_t size);
+        void *calloc(size_t nobj, size_t size);
+        void *realloc(void *ptr, size_t newsize);
+        void free(void *ptr);
+
+        前3个函数返回值:
+            成功,返回非空指针
+            出错,返回NULL
+
+        函数说明:
+            这3个函数所返回的指针一定是适当对齐的,使其可用于任何数据对象
+
+        替代的存储空间分配程序
+            1)  libmalloc   -   libmalloc库包括mallopt函数,它使进程可以设置一些变量,并用他们来控制存储
+                                空间分配程序的操作,还可以使用另一个名为mallinfo的函数,以对存储空间分配
+                                程序的操作进行统计.
+            2)  vmalloc
+            3)  quick-fit   -   快速分配,标准malloc算法是最佳适配或首次适配存储分配策略,quick-fit算法
+                                比上述两种算法快,但会使用较多的存储空间.
+                                该算法基于将存储空间分裂成各种长度的缓冲区,并将未使用的缓冲区按其长度
+                                组成不同的空闲区列表
+            4)  jemalloc    -   jemalloc函数实现是FreeBSD 8.0中的默认存储空间分配程序,它是库函数malloc
+                                族在FreeBSD中的实现,它的设计具有良好的可扩展性,可用于多处理器系统中多
+                                线程的应用程序
+            5)  TCMalloc    -   Google-perftools开源工具中的一个,用来替代malloc函数族以提供高性能、高
+                                扩展性和高存储效率;从高速缓存中分配缓冲区以及释放缓冲区到高速缓存中,
+                                它使用线程-本地高速缓存来避免锁开销;它还有内置的堆检查程序和堆分析程序
+                                帮助调试和分许动态存储的使用.
+            6)  alloca函数  -   它的调用序列与malloc相同,但是它是在当前函数的栈帧上分配存储空间
+                                优点: 当函数返回时,自动释放它所使用的栈帧
+                                缺点: alloca函数增加了栈帧的长度,而某些系统在函数已被调用后不能增加栈
+                                      帧长度,于是就不支持alloca函数
+
+    7、 环境变量
+        环境变量的解释权完全取决于各个应用程序,内核不关注环境变量
+        name=value
+        环境表和环境字符串通常存放在进程存储空间的顶部(栈之上),修改和新增环境变量很复杂
+
+        #include <stdlib.h>
+        char *getenv(const char *name);
+
+        返回值:
+            找到,返回指向与name关联的value的指针
+            未找到,返回NULL
+
+        函数说明:
+            指定环境变量的name,获取当前进程环境变量的value值
+    
+        #include <stdlib.h>
+        int putenv(char *str);      -   成功,返回0;出错,返回非0
+        int setenv(const char *name, const char *value, int rewrite);
+        int unsetenv(const char *name);
+
+        后2个函数返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            putenv      -   取形式为name=value的字符串,将其输出到环境列表中;
+                            如果name已经存在,则先删除原来value值
+            setenv      -   将name设置为value;如果name已经存在:
+                            a.  参数rewrite非0,则先删除其原有value值
+                            b.  参数rewrite为0,则不删除原有值,name也不设置新值,返回也不出错
+            unsetenv    -   删除name的value值,name不存在也不会报错
+
+
+        POSIX.1定义的某些环境变量:
+            COLUMNS         -   终端宽度
+            DATEMSK         -   getdate模版文件路径名
+            HOME            -   起始目录
+            LANG            -   本地字符集
+            LC_ALL          -   本地名
+            LC_COLLATE      -   排序习惯
+            LC_CTYPE        -   本地字符分类类型
+            LC_MESSAGES     -   本地消息名
+            LC_MONETARY     -   本地货币编辑名
+            LC_NUMERIC      -   本地数字编辑名
+            LC_TIME         -   本地日期/时间格式名
+            LINES           -   终端高度
+            LOGNAME         -   登录名
+            MSGVERB         -   fmtmsg处理的消息组成部分
+            NLSPATH         -   消息类模版序列
+            PATH            -   搜索可执行文件的路径前缀列表
+            SHELL           -   用户首选的shell名
+            TERM            -   终端类型
+            TMPDIR          -   在其中创建临时文件的目录路径名
+            TZ              -   时区信息
+           
+    8、 setjmp 和 longjmp 函数
+
+        #include <setjmp.h>
+        int setjmp(jmp_buf env);
+            返回值: 若直接调用,返回0;若从longjmp返回,则为非0
+        void longjmp(jmp_buf env, int val);
+
+        函数说明:
+            在C中,goto语句是不能跨越函数的,执行跨越函数的跳转函数setjmp 和 longjmp
+            setjmp  -   设置程序的返回点
+            longjmp -   使用返回点,使程序进行跳转,参数val是跳转回返回点之后setjmp的返回值
+                        一个setjmp可以有多个longjmp,longjmp的参数val可用于判断是哪个longjmp返回
+
+            注:
+                上述函数适合于,在C语言函数的深层嵌套层时,出现非致命性错误的处理方式
+                无需逐层检查返回值的返回,本质是直接进行函数栈帧跳转,直接在栈上跳过若干调用帧
+                
+            见Chapter_7/jump.c 测试程序
+
+    问题:
+        自动变量、寄存器变量和易失变量
+            当调用longjmp跳转返回点后,longjmp和返回点之间压入的栈帧会被丢弃,此时,各个函数的变量值
+            不会自动回滚到调用setjmp之前,值是不确定的.
+   
+            gcc -O 编译时进行编译器优化
+            在编译时不进行编译器优化时,在调用longjmp之后,各个变量的值是最近所呈现的值(最近一次赋值)
+            在编译时进行编译器优化之后,存放在存储器中的变量将具有调用longjmp时的值,
+            而存放在CPU和浮点寄存器中的变量则恢复为调用setjmp时的值.
+
+            编译器不进行优化时,所有种类的变量都存放在存储器中,即忽略了register的类型说明
+            而进行编译器优化后,自动变量和register类型变量都会存放在寄存器中,
+            volatitle声明的变量仍然存放在存储器中
+
+        重点:
+            如果要编写使用非局部跳转的可移植程序,必须使用volatitle属性,禁止编译器对该属性变量进行优化
+
+            见Chapter_7/longjmp.c 测试程序,测试longjmp对各类变量的影响
+
+    9、 getrlimit 和 setrlimit 函数     -   查询和更改资源限制
+        
+        #include <sys/resource.h>
+        int getrlimit(int resource, struct rlimit *rlptr);
+        int setrlimit(int resource, const struct rlimit *rlptr);
+
+        返回值:
+            成功,返回0
+            出错,返回非0
+
+        函数说明:
+            进程的资源限制通常是在系统初始化时由0进程建立,然后由后续进程继承
+            对这两个函数的每一次调用都指定一个资源以及一个指向下列结构的指针:
+                struct rlimit {
+                    rlim_t rlim_cur;    /* soft limit: current limit */
+                    rlim_t rlim_max;    /* hard limit: maximum value for rlim_cur */
+                };
+            在更改资源限制时,须遵守以下规则:
+                a.  任何一个进程都可将一个软限制值更改为小于或等于其硬限制值
+                b.  任何一个进程都可降低其硬限制值,但它必须大于或等于其软限制值;
+                    这种降低对普通用户而言是不可逆向的
+                c.  只有超级用户进程可以提高硬限制值
+
+            常量RLIM_INFINITY指定一个无限量的限制
+            resource参数取下列值之一:
+                RLIMIT_AS       -   进程总的可用存储空间的最大长度(字节数),这影响到sbrk函数和mmap函数
+                                    sbrk(动态内存分配) mmap(创建共享内存映射)
+                RLIMIT_CORE     -   core文件的最大字节数,若值为0则阻止该进程创建core文件
+                RLIMIT_CPU      -   CPU时间的最大量值(秒),若超过此软限制时,向该进程发送SIGXCPU信号
+                RLIMIT_DATA     -   数据段的最大字节数,初始化数据段、非初始化数据段和堆的总和
+                RLIMIT_FSIZE    -   创建的文件的最大字节长度;当超过该限制时,向该进程发送SIGXFSZ信号
+                RLIMIT_MEMLOCK  -   一个进程使用mlock能够锁定在存储空间中的最大字节数
+                RLIMIT_MSGQUEUE -   进程为POSIX消息队列可分配的最大存储字节数
+                RLIMIT_NICE     -   此值影响进程调度的优先级,nice可设置的最大限制
+                RLIMIT_NOFILE   -   每个进程能打开的最大文件数;更改此限制将影响到sysconf函数在参数
+                                    _SC_OPEN_MAX 中的返回值
+                RLIMIT_NPROC    -   每个实际用户ID可拥有的最大子进程数;更改此限制将影响到sysconf函数
+                                    在参数_SC_CHILD_MAX中的返回值
+                RLIMIT_NPTS     -   用户可以打开的伪终端最大数量
+                RLIMIT_RSS      -   最大驻内存集字节长度(resident set size in bytes,RSS)
+                                    如果可用的物理存储器非常少,则内核将从进程处取回超过RSS的部分
+                RLIMIT_SBSIZE   -   在任一给定时刻,一个用户可以占用的套接字缓冲区的最大长度
+                RLIMIT_SIGPENDING   一个进程可排队的信号最大数量;这个限制是sigqueue函数实施的
+                RLIMIT_STACK    -   栈的最大字节长度
+                RLIMIT_SWAP     -   用户可消耗的交换空间的最大字节数
+                RLIMIT_VMEM     -   RLIMIT_AS的同义词
+            资源限制影响到调用进程并由其子进程继承,所以为了影响一个用户的后续所有进程,需将资源限制
+            的设置构造在shell之中.
+                ulimit 命令可查看当前shell
