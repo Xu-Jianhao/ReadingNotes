@@ -97,9 +97,9 @@ int buffer_size(FILE *fp)
 #elif defined(_IONBF)
 
 #ifdef _LP64
-#define _flag __pad[4]
-#define _ptr  __pad[1]
-#define _base __pad[2]
+#define _flag __pad5[4]
+#define _ptr  __pad5[1]
+#define _base __pad5[2]
 #endif
 
 int is_unbuffered(FILE *fp)
