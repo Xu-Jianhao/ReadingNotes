@@ -2352,3 +2352,105 @@
     9、 孤儿进程组
 
 第10章、    信号
+    1、 概念
+        信号是软件中断,信号提供了一种处理异步事件的方法
+        在头文件<signal.h>中,信号名都被定义为正整数常量(信号编号),信号的实现定义在<bits/signum.h>中(linux)
+        不存在编号为0的信号
+        
+        产生信号的条件:
+            1)  当用户按某些终端键时,引发终端产生信号
+            2)  硬件异常产生信号: 除数为0、无效的内存引用等
+                这些条件通常由硬件检测到,并通知内核;然后内核为该条件发生时正在运行的进程产生适当的心海
+            3)  进程调用kill函数可将任意信号发送给另一个进程或进程组
+                接受信号进程和发送信号进程的所有者必须相同,超级用户发送信号无限制
+            4)  用户可以使用kill命令将信号发送给其他进程;此命令只是kill函数的接口
+            5)  当检测到某种软件条件已经发生,并应将其通知有关进程时也产生信号
+                如在网络连接上传来带外的数据产生的SIGURG、在管道的读进程已经终止后,一个进程写此管道
+                产生的SIGPIPE、进程设置的定时器超时产生的SIGALRM
+
+        当信号随机产生时,可以告诉内核的3种处理方式:
+            1)  忽略此信号  -   大多数信号都可以使用这种方式处理,但有两种信号不能被忽略(SIGKILL和SIGSTOP)
+                                不能被忽略的原因是:它们向内核和超级用户提供了使进程终止或停止的可靠方法
+
+            2)  捕捉信号    -   为了做到这一点,要通知内核在某种信号发生时,调用一个用户函数
+                                SIGKILL 和 SIGSTOP 不能被捕捉
+
+            3)  执行系统默认动作    -   对大多数信号的系统默认动作是终止该进程
+
+        信号类型及说明:
+            SIGABRT     -   异常终止(abort)         abort 函数产生
+            SIGALRM     -   定时器超时(alarm)       alarm 函数和 setitimer函数
+            SIGBUS      -   硬件故障                某些类型的内存故障
+            SIGCANCEL   -   线程库内部使用      
+            SIGCHID     -   子进程状态发生改变
+            SIGCONT     -   使暂停进程继续          此作业控制发送给需要继续运行但当前处于停止状态的进程
+            SIGEMT      -   硬件故障
+            SIGFPE      -   算术异常                如除以0、浮点溢出等
+            SIGFREEZE   -   检查点冻结
+            SIGHUP      -   连接断开                检查到连接断开后将此信号发送给该终端的会话首进程
+            SIGILL      -   非法硬件指令
+            SIGINFO     -   键盘状态请求
+            SIGINT      -   终端中断符              当用户按终端键,终端驱动程序产生此信号并发送至前台进程组
+            SIGIO       -   异步I/O                 指示一个异步I/O事件
+            SIGIOT      -   硬件故障                
+            SIGKILL     -   终止 
+            SIGPIPE     -   写至无读进程的管道      SOCK_STREAM类型的套接字已不再连接时,进程写该套接字也产生
+            SIGPOLL     -   可轮询事件(poll)
+            SIGPROF     -   硬概时间超时(setitimer)
+            SIGPWR      -   电源失效/重启动         主要用于具有不间断电源(UPS)的系统
+            SIGQUIT     -   终端退出符              用户按键,终端驱动程序产生,发送给前台进程组中的所有进程
+            SIGSEGV     -   无效内存引用            通常说明程序有错,如访问了一个未初始化的指针
+            SIGSTKFLT   -   协处理器栈故障
+            SIGSTOP     -   停止
+            SIGSYS      -   无效系统调用
+            SIGTRAP     -   硬件故障 
+            SIGTSTP     -   终端停止符              停止交互,挂起信号  
+            SIGTERM     -   终止                    kill命令发送的系统默认终止信号,让程序优雅的退出(做清理工作)
+            SIGTTIN     -   后台读控制tty
+            SIGTTOU     -   后台写向控制tty
+            SIGURG      -   紧急情况(套接字)
+            SIGUSR1     -   用户定义信号
+            SIGUSR2     -   用户定义信号 
+            SIGVTALRM   -   虚拟时间闹钟(setitimer) setitimer函数设置的虚拟间隔时间已经超时时产生
+            SIGWINCH    -   终端窗口大小改变        内核维持与每个终端或伪终端相关联窗口的大小,可用ioctl设置
+            SIGXCPU     -   超过CPU限制(setrlimit)
+            SIGFSZ      -   超过文件长度限制(setrlimit)
+        下列条件下不产生core文件:
+            a.  进程是设置用户ID的,而且当前用户并非程序文件的所有者
+            b.  进程是设置组ID的,而且当前用户并非程序文件的组所有者
+            c.  用户没有写当前工作目录的权限
+            d.  文件已经存在,而且用户对该文件没有写权限
+            e.  文件太大,超过最大文件限制(RLIMIT_CORE)
+
+    2、 signal 函数 
+        
+        #include <signal.h>
+        void (*signal(int signo, void (*func)(int)))(int);
+
+        返回值:
+            成功,返回以前的信号处理配置
+            出错,返回SIG_ERR
+
+        函数说明:
+            UNIX系统信号机制最简单的接口函数
+            不可靠信号语以函数,应当使用sigaction代替
+
+            signo参数是信号名,func参数的值是常量SIG_IGN、常量SIG_DFL或当接到此信号要调用的函数地址
+            指定SIG_IGN,则向内核表示忽略此信号
+            指定SIG_DFL,则向内核表示接到此信号后的动作是系统默认动作
+            指定函数地址时,则在信号发生时,调用该函数,称此函数为信号处理函数(signal handler),
+                            或称为信号捕捉函数(signal-catching function)
+
+            signal函数原型说明此函数要求有两个参数,返回一个函数指针,而该指针所指向的函数无返回值(void)
+            signal函数的返回值是一个函数地址,该函数有一个整型参数(即最后的(int));即signal的返回函数指针
+            指向的是在此之前的信号处理程序的指针
+            typedef void Sigfunc(int);      -   Sigfunc(int) 是一个拥有一个int参数且无返回值的函数类型
+            Sigfunc *signal(int, Sigfunc *);
+            等效于:
+            void (*signal(int, void(*func)(int)))(int);
+
+            <signal.h>中:
+                #define SIG_ERR (void (*)())-1
+                #define SIG_DFL (void (*)())0
+                #define SIG_IGN (void (*)())1
+            表示:   指向函数的指针,该函数要求一个整型参数,而且无返回值
