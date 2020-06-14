@@ -2565,3 +2565,107 @@
             POSIX.1将信号编号0定义为空信号,如果参数signo为0,则kill仍执行正常的错误检查,但不发送信号,
             这常被用来确定一个特定进程是否仍然存在,如果向一个不存在的进程发送空信号,则kill返回-1,
             errno被设置为ESRCH
+
+    9、 alarm 和 pause 函数
+        
+        #include <unistd.h>
+        unsigned int alarm(unsigned int seconds);
+
+        返回值:
+            返回0或以前设置的闹钟时间的剩余秒数
+
+        函数说明:
+            使用alarm函数可以设置一个定时器(闹钟),在将来的某个时刻该定时闹钟会超时;当闹钟
+            定时器超时时,产生一个SIGALRM信号,如果忽略或不捕捉此信号,则其默认动作是终止调用该函数的进程
+
+            参数seconds的值是产生信号SIGALRM需要经过的时钟秒数,当这一时刻到达时,信号由内核产生
+
+            每个进程只能有一个闹钟时间,如果在调用alarm时,之前已为该进程注册的闹钟时间还没有超时,则该
+            闹钟时间的剩余值作为本次alarm函数调用的值返回,以前注册的闹钟时间则被新值代替
+
+            如果有以前注册的尚未超时的闹钟时间,而且本地调用的seconds值是0,则取消以前的闹钟时间,剩余值
+            作为函数返回值返回
+
+            注:
+                先注册信号处理程序再调用alarm,否则在注册信号处理程序之前接收到SIGALRM信号,程序将终止
+
+        #include<unistd.h>
+        int pause(void);
+
+        返回值:
+            返回-1,errno设置为EINTR
+
+        函数说明:
+            pause函数使调用进程挂起直到捕捉到一个信号
+            只有执行了一个信号处理程序并从其返回时,pause才会返回.
+
+        见Chapter_10/sleep1.c sleep2.c    使用函数alarm 和 pause
+
+        除了用来实现sleep函数外,alarm还常用于对可能阻塞的操作设置时间上限值
+        在程序中慢速系统调用在阻塞期间,我们希望超过一定时间值后就停止等待
+        见Chapter_10/limitRead.c    带时间限制的read函数
+
+    10、    信号集  -   表示多个信号的数据类型(singnal set)
+
+        #include <signal.h>
+        int sigemptyset(sigset_t *set);
+        int sigfillset(sigset_t *set);
+        int sigaddset(sigset_t *set, int signo);
+        int sigdelset(sigset_t *set, int signo);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        int sigismember(const sigset_t *set, int signo);
+
+        返回值:
+            若真,返回1
+            若假,返回0
+
+        函数说明:
+            sigemptyset -   初始化由set指向的信号集,清除其中所有信号
+            sigfillset  -   初始化由set指向的信号集,使其包括所有信号
+            sigaddset   -   将一个信号添加到已有的信号集中
+            sigdelset   -   将一个信号从已有的信号集中删除
+            sigismember -   判断一个信号在不在集合内
+
+        函数实现原理:   见Chapter_10/sigset.c
+
+    11、    sigprocmask 函数    -   检测和更改进程的信号屏蔽字
+
+        #include <signal.h>
+        int sigprocmask(int how, const sigset_t *restrict set, sigset_t *restrict oset);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            若参数oset是非空指针,则进程的当前信号屏蔽字通过oset返回
+            若参数set 是一个非空指针,则参数how指示如何修改当前的信号屏蔽字,how的可选值如下:
+                SIG_BLOCK   -   该进程新的信号屏蔽字是其[当前信号屏蔽字和set指向信号集的并集],
+                                set包含了希望[阻塞]的附加信号
+                
+                SIG_UNBLOCK -   进程新的信号屏蔽字是[当前信号屏蔽字和set所指向信号集补集的交集],
+                                set包含了希望[解除阻塞]的信号
+
+                SIG_SETMASK -   该进程新的信号屏蔽字是[set指向的值]
+
+            如果set是个空指针,则不改变该进程的信号屏蔽字,how的值也无意义
+            注:
+                在调用sigprocmask后,如果有任何未决的、不再阻塞的信号,则在sigprocmask返回前至少将其中之一递送给进程
+                sigprocmask 仅是单线程进程定义的,不可用在处理多线程进程中的信号屏蔽.
+
+            见src/pr_mask.c
+
+    12、    sigpending 函数 -   返回当前未决信号集
+
+        #include <signal.h>
+        int sigpending(sigset_t *set);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        见Chapter_10/signalSet.c
