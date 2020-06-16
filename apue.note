@@ -2433,7 +2433,7 @@
 
         函数说明:
             UNIX系统信号机制最简单的接口函数
-            不可靠信号语以函数,应当使用sigaction代替
+            不可靠信号语义函数,应当使用sigaction代替
 
             signo参数是信号名,func参数的值是常量SIG_IGN、常量SIG_DFL或当接到此信号要调用的函数地址
             指定SIG_IGN,则向内核表示忽略此信号
@@ -2669,3 +2669,289 @@
             出错,返回-1
 
         见Chapter_10/signalSet.c
+
+    13、    sigaction 函数  -   检查或修改与指定信号相关的处理动作(代替signal函数)
+
+        #include <signal.h>
+        int sigaction(int signo, const struct sigaction *restrict act, struct sigaction *restrict oact);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            参数signo是要检测或修改其具体动作的信号编号
+            若act指针不为空,则要修改其处理动作
+            若oact指针非空,则系统经由oact指针返回该信号的上一个动作
+            此函数使用下列数据结构:
+                struct sigaction {
+                    void     (*sa_handler)(int);    /* addr of signal handler, or SIG_IGN, or SIG_DFL*/
+                    sigset_t sa_mask;               /* additional signals to block */
+                    int         sa_flags;           /* signal options */
+
+                    void (*sa_sigactionn)(int, siginfo_t *, void *);    /* alternate handler */
+                }
+            当更改信号处理动作时,如果sa_handler字段包含一个信号捕捉处理函数的地址,则sa_mask字段说明了一个信号集,
+            在调用该信号捕捉函数之前,这一信号集要加到进程的信号屏蔽字中
+            当从信号捕捉函数返回时,再将进程的信号屏蔽字恢复为原有值
+
+            一旦对给定的信号设置了一个处理动作,那么在调用sigaction显式改变它之前,该设置就一直有效
+
+            act结构的sa_flags字段指定对信号进行处理的各个选项,如下:
+                SA_INTERRUPT    -   由此信号中断的系统调用不自动重启动(sigaction默认处理方式)
+                SA_NOCLDSTOP    -   若signo是SIGCHLD,当子进程停止(作业控制),不产生此信号;当子进程终止仍旧产生此信号
+                SA_NOCLDWAIT    -   若signo是SIGCHLD,则当调用进程的子进程终止时,不创建僵尸进程;
+                                    若调用进程随后调用wait,则阻塞到它所有子进程都终止,此时返回-1,errno设置ECHILD
+                SA_NODEFER      -   当捕捉到此信号时,在执行其信号捕捉函数时,系统不自动阻塞该信号(除非sa_mask包括了
+                                    此信号)
+                SA_ONSTACK      -   若用sigaltstack已声明了一个替换栈,则此信号传递送给替换栈上的进程
+                SA_RESETHAND    -   在此信号捕捉函数的入口处,将此信号的处理方式重置为SIG_DFL,并清除SA_SIGINFO标志;
+                                    但是不能自动重置SIGILL和SIGTRAP这两个信号的配置
+                SA_RESTART      -   由此信号中断的系统调用自动重启动
+                SA_SIGINFO      -   此选项对信号处理程序提供了附加信息:一个指向siginfo结构的指针以及一个指向
+                                    进程上下文标识符的指针
+
+            sa_sigaction字段是一个替代信号处理程序,在sigaction结构中使用了SA_SIGINFO标志时,使用该信号处理程序.
+            对于sa_sigaction字段和sa_handler字段两者,实现可能使用同一存储区,所以应用只能一次使用这两个字段中的一个
+            通常,按下列方式调用信号处理程序:
+                void handler(int signo);
+            但是,当设置了SA_SIGINFO标志时,按下列方式调用:
+                void handler(int signo, siginfo_t *info, void *context);
+
+            siginfo结构体:
+                struct siginfo {
+                    int         si_signo;       /* signal number */
+                    int         si_errno;       /* if nonzero, errno value from <errno.h> */
+                    int         si_code;        /* additional info (depends on signal) */
+                    pid_t       si_pid;         /* sending process ID */
+                    uid_t       si_uid;         /* sending process real user ID */
+                    void        *si_addr;       /* address that caused the fault */
+                    int         si_status;      /* exit value or signal number */
+                    union sigval si_value;      /* application-specific value */
+                    /* possibly other fields also */
+                };
+            sigval 联合体包含以下字段:
+                int   sival_int;
+                void  *sival_ptr;
+            应用程序在递送信号时,在si_value.sival_int中传递一个整型数或在si_value.sival_ptr中传递一个指针值.
+
+            若信号是SIGCHLD,则将设置si_pid、si_status和si_uid字段;
+            若信号是SIGBUS、SIGILL、SIGFPRE或SIGSEGV,则si_addr包含造成故障的根源地址(该地址可能不准确),
+            si_errno字段包含错误编号,对应造成信号产生的条件
+
+            信号处理程序的context参数是无类型指针,它可被强制类型转换为ucontext_t结构类型,该结构标识信号传递时进程的
+            上下文,该结构包含的字段:    
+                ucontext_t      *uc_link;       /* pointer to context resumed when */
+                                                /* this context returns */
+                sigset_t        uc_sigmask;     /* signals blocked when this context is active */
+                stack_t         us_stack;       /* stack used by this context */
+                mcontext_t      uc_mcontext;    /* machine-specific representation of saved context */
+
+                uc_stack 字段描述了当前上下文使用的栈,包括以下成员:
+                    void    *ss_sp;     /* stack base or pointer */
+                    size_t  ss_size;    /* stack size */
+                    int     ss_flags;   /* flags */
+
+        见src/signal.c  用sigaction实现signal函数
+
+    14、    sigsetjmp 和 siglongjmp 函数
+
+        调用longjmp有一个问题,当捕捉到一个信号时,进入信号捕捉函数,此时当前信号被自动的加到进程的信号屏蔽字中,
+        这阻止了后来产生的这种信号中断该信号处理程序
+
+        #include <setjmp.h>
+        int sigsetjmp(sigjmp_buf env, int savemask);
+
+        返回值:
+            若直接调用,返回0
+            若从siglongjmp调用返回,则返回非0
+
+        void siglongjmp(sigjmp_buf env, int val);
+
+        函数说明:
+            在信号处理程序中进行非局部转移调用上述函数.
+            这两个函数和setjmp、longjmp之间的唯一区别是sigsetjmp增加了一个参数
+            如果savemask非0,则sigsetjmp在env中保存进程的当前信号屏蔽字
+            调用siglongjmp时,如果带非0savemask的sigsetjmp调用已经保存了env,则siglongjmp从其中恢复保存的信号屏蔽字
+
+        见Chapter_10/sigsetjmp.c 演示了在信号处理程序被调用时,系统所设置的信号屏蔽字如何自动的包括刚被捕捉到的信号
+        也说明如何使用sigsetjmp和siglongjmp函数
+
+        注:
+            在siglongjmp返回时,会恢复在sigsetjmp处保存的进程屏蔽字,而setjmp达不到这种效果
+
+    15、    sigsuspend 函数 -   原子操作(先恢复信号屏蔽字,解除阻塞,然后使进程休眠(pause))
+        
+        #include <signal.h>
+        int sigsuspend(const sigset_t *sigmask);
+
+        返回值:
+            返回-1,并将errno设置为EINTR
+
+        函数说明:
+            进程的信号屏蔽字设置为由参数sigmask指向的值
+            在捕捉到一个信号或发生了一个会终止该进程的信号之前,该进程被挂起
+            如果捕捉到一个信号而且从该信号的处理程序中返回,则sigsuspend返回,
+            并且该进程的信号屏蔽字设置为调用sigsuspend之前的值
+
+        见Chapter_10/sigsuspend.c   保护代码临界区,使其不被特定信号中断的正确方法
+        见Chapter_10/sigsuspend2.c  等待一个信号处理程序设置一个全局变量
+        见Chapter_10/sigsuspend3.c  用信号实现父、子进程之间的同步
+
+    16、    abort 函数  -   使调用程序异常终止
+
+        #include <stdlib.h>
+        void abort(void);
+
+        函数说明:
+            此函数将SIGABRT信号发送给调用进程,调用abort将向主机环境递送一个未成功终止的通知,其方法是
+            调用raise(SIGABRT)函数
+
+            ISO C要求若捕捉到此信号而且相信信号处理程序返回,abort仍不会返回到其调用者
+            如果捕捉到此信号,则信号处理程序不能返回的唯一方法是调用exit、_exit、_Exit、longjmp或siglongjmp
+            POSIX.1说明abort并不会理会进程对此信号的阻塞和忽略
+
+            让进程捕捉SIGABRT的意图是:在进程终止之前由其执行所需的清理操作;
+            如果进程并不在信号处理程序中终止自己,POSIX.1声明当信号处理程序返回时,abort终止该进程
+
+            见Chpater_10/abort.c    abort的POSIX.1实现
+    
+    17、    system 函数
+        POSIX.1 要求system忽略SIGINT和SIGQUIT,阻塞SIGCHLD
+        见Chpater_10/systemTT.c   
+
+        由此程序可知:
+            当在父进程创建子进程时,终端发送SIGINT信号时,将发送给整个前台进程组每个进程(shell、父进程、子进程)
+            但是,当调用system运行另一个程序时,不应使父、子进程两者都捕捉终端产生的两个信号:中断和退出
+            这两个信号只应该发送给正在运行的程序:子进程.
+            因为由system执行的命令可能是交互式命令,以及因为system的调用者在程序执行时放弃了控制,等待该执行程序的结束
+            所以system的调用者就不应该接受这两个终端产生的信号
+
+            所以,POSIX.1规定system的调用者在等待命令完成时应当忽略这两个信号
+
+        见Chapter_10/sigSystem.c    进行了所要求的信号处理的system函数实现
+
+    18、    sleep、nanosleep 和 clock_nanosleep 函数
+
+        #include <unistd.h>
+        unsigned int sleep(unsigned int seconds);
+
+        返回值:
+            0或未休眠完的秒数
+
+        函数说明:
+            此函数使调用进程被挂起直到满足下面两个条件之一:
+                a.  已经过了seconds所指定的墙上时钟时间             -   返回0
+                b.  调用进程捕捉到一个信号并从信号处理程序返回      -   返回剩余秒数
+
+        见Chapter_10/sigSleep.c 是一个POSIX.1 sleep函数的实现,可以可靠的处理信号,避免了竞序条件
+
+        #include <time.h>
+        int nanosleep(const struct timespec *reqtp, struct timespec *remtp);
+
+        返回值:
+            若休眠到要求的时间,返回0
+            出错,返回-1
+
+        函数说明:
+            nanosleep 函数与sleep函数类似,但提供了纳秒级的精度
+            此函数挂起调用进程,直到要求的时间已经超时或者某个信号中断了该函数;
+            reqtp参数用秒和纳秒指定了需要休眠的时间长度
+            如果某个信号中断了休眠间隔,进程并没有终止,remtp参数指向的timespec结构就会被设置为
+            剩余的休眠时间长度,可以传NULL
+
+        #include <time.h>
+        int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *reqtp, struct timespec *remtp);
+
+        返回值:
+            若休眠到要求的时间,返回0
+            出错,返回错误码
+
+        函数说明:
+            随着多个系统时钟的引入,需要使用相对于特定时钟的延迟时间来挂起调用线程
+            clock_id参数指定了计算延迟时间基于的时钟(时钟标识符查看第6章)
+            flags 参数用于控制延迟是相对还是绝对的;
+                flags为0时表示休眠时间是相对的(例如,希望休眠的时间长度)
+                flags设置为TIMER_ABSTIME,表示休眠时间是绝对的(例如,希望休眠到时钟到达某个特定的时间)
+            reqtp 和 remtp参数与nanosleep函数中相同
+            使用绝对时间时,remtp参数未使用
+
+    19、    sigqueue 函数
+        通常一个信号带有一个位信息:信号本身
+        除了对信号排队以外,这些扩展允许应用程序在递交信号时传递更多的信息,这些信息嵌入在siginfo结构中
+        除了系统提供的信息,应用程序还可以向信号处理程序传递整数或者指向包含更多信息的缓冲区指针
+        使用排队信号必须做以下几个操作:
+            1)  使用sigaction函数安装信号处理程序时指定SA_SIGINFO标志,如果没有给出这个标志,信号会延迟
+                但信号是否进入队列要取决于具体实现
+
+            2)  在sigaction结构的sa_sigaction成员中提供信号处理程序,实现可能允许用户使用sa_handler字段,
+                但是不能获取sigqueue函数发送出来的额外信息
+
+            3)  使用sigqueue函数发送信号
+
+        #include <signal.h>
+        int sigqueue(pid_t pid, int signo, const union sigval value);
+
+        返回值:
+            若成功,返回0
+            出错,返回-1
+
+        函数说明:
+            sigqueue函数只能把信号发送给单个进程,可以使用value参数向信号处理程序传递整数和指针值
+            除此之外,sigqueue函数与kill函数类似
+
+        信号不能被无限排队,取决于系统限制SIGQUEUE_MAX,到达相应的限制以后,sigqueue就会失败,将errno设为EAGIN
+
+        随着实时信号的增强,引入了用于应用程序的独立信号集,这些信号的编号在SIGRTMIN~SIGRTMAX之间,包括这两个
+        限制值,这些信号的默认行为是终止进程
+
+    20、    作业控制信号
+        POSIX.1 认为与作业控制有关的6个信号:
+            SIGCHLD     -   子进程已停止或终止
+            SIGCONT     -   如果进程已停止,则使其继续运行
+            SIGSTOP     -   停止信号(不能被捕捉或忽略)
+            SIGTSTP     -   交互式停止信号
+            SIGTTIN     -   后台进程组成员读控制终端
+            SIGTTOU     -   后台进程组成员写控制终端
+        除SIGCHLD以外,大多数应用程序并不处理这些信号,交互式shell则通常会处理这些信号的所有工作
+
+        见Chapter_10/SIGTSTP.c  实现如何处理SIGTSTP信号
+
+    21、    信号名和编号    -   如何在信号编号和信号名之间映射
+
+        #include <signal.h>
+        void psignal(int signo, const char *msg);
+
+        函数说明:
+            可移植的打印与信号编号对应的字符串
+            字符串msg(通常是程序名)输出到标准错误文件,后面跟随一个冒号和一个空格,在后面对该信号的说明,
+            最后是一个换行符;如果msg为NULL,只有信号说明部分输出到标准错误文件,该函数类似于perror
+
+        #include <signal.h>
+        void psiginfo(const sigingo_t *info, const char *msg);
+
+        函数说明:
+            如果在sigaction信号处理程序中有siginfo结构,可以使用psiginfo函数打印信号信息
+
+        #include <string.h>
+        char *strsignal(int signo);
+
+        返回值:
+            指向描述该信号的字符串的指针
+
+        函数说明:
+            如果只需要信号的字符描述部分,也不需要把它写到标准错误文件中(可以写到日志文件中),可以使用
+            strsignal函数,它类似于strerror
+            给出一个信号编号,strsignal将返回描述该信号的字符串,应用程序可用该字符串打印关于接收到信号的出错信息.
+
+        #include <signal.h>
+        int sig2str(int signo, char *str);
+        int str2sig(const char *str, int *signop);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            一个将信号编号映射为信号名,另一个反之
+
