@@ -2955,3 +2955,159 @@
         函数说明:
             一个将信号编号映射为信号名,另一个反之
 
+第十一章、  线程
+
+    1、线程概念
+        线程的优点:
+            a.  通过为每种事件类型分配单独的处理线程,可以简化处理异步事件的代码;
+                每个线程在进行事件处理时可以采用同步编程模式,同步编程模式要比异步编程模式简单
+
+            b.  多个进程必须使用操作系统提供的复杂机制才能实现内存和文件描述符的共享,而多个线程
+                在同一进程下可以访问相同存储地址空间和文件描述符
+
+            c.  有些问题可以分解从而提高整个程序的吞吐量
+                在只有一个控制线程的情况下,一个单线程要完成多个任务,只需要把这些任务串行化;
+                在有多个控制线程时,相互独立的任务处理就可以交叉进行,此时只需要为每个任务分配一个单独的线程
+
+            d.  交互的程序同样可以通过使用多线程来改善响应时间,多线程可以把程序中处理用户输入输出的部分与
+                其他部分分开
+
+        每个线程都包含有表示执行环境所必需的信息,其中包括进程中标识线程的线程ID、一组寄存器值、栈、调度优先级和
+        策略、信号屏蔽字、errno变量以及线程私有数据
+        
+        一个进程的所有信息对该进程中的所有线程都是共享的,包括可执行程序的代码、程序的全局内存和堆内存、栈以及
+        文件描述符
+
+    2、 线程标识    -   线程id(pthread_t tid)
+        线程ID只有在它所属的进程上下文中才有意义
+        线程ID的数据类型是pthread_t, 该结构不能把它作为整数处理(不同系统实现方式不同)
+
+        #include <pthread.h>
+        int pthread_equal(pthread_t tid1, pthread_t tid2);
+
+        返回值:
+            若相等,返回非0数值
+            不想等,返回0
+
+        函数说明:
+            用来比较两个线程ID是否相等
+
+        #include <pthread.h>
+        pthread_t pthread_self(void);
+
+        返回值:
+            调用线程的线程ID
+
+        函数说明:
+            获取自身的线程ID
+
+    3、 线程创建
+        
+        #include <pthread.h>
+        int pthread_create(pthread_t *restrict tidp, const pthread_attr_t *restrict attr,
+                            void *(*start_rtn)(void *), void *restrict arg);
+
+        返回值:
+            成功,返回0
+            出错,返回错误编号
+
+        函数说明:
+            当pthread_create成功返回时,新创建线程的线程ID会被设置成tidp指向的内存单元
+            attr参数用于定制各种不同的线程属性
+            新创建的线程从start_rtn函数的地址开始运行,该函数只有一个无类型指针参数arg
+            线程创建时并不能保证哪个线程会先运行
+
+            新创建的线程可以访问进程的地址空间,并且继承调用线程的浮点环境和信号屏蔽字,但是该线程的
+            挂起信号集会被清除
+
+            pthread函数在调用失败时通常会返回错误码,并不像其他的POSIX函数一样设置errno
+
+            见Chapter_11/pthread_create.c  创建并打印线程ID
+
+    4、 线程终止
+        进程中任意线程调用了exit、_Exit 或者 _exit,那么整个进程就会终止
+        单个线程可以通过3种方式退出:
+            1)  线程可以简单的从启动例程中返回,返回值是线程的退出码
+            2)  线程可以被同一进程中的其他线程取消
+            3)  线程调用pthread_exit
+
+        #include <pthread.h>
+        void pthread_exit(void *rval_ptr);
+
+        函数说明:
+            rval_ptr参数是一个无类型指针,与传给启动例程的单个参数类似
+            进程中的其他线程也可以通过调用pthread_join函数访问到这个指针
+
+        #include <pthread.h>
+        int pthread_join(pthread_t thread, void **rval_ptr);
+
+        返回值:
+            成功,返回0
+            出错,返回错误编号
+
+        函数说明:
+            调用此函数的线程将一直阻塞,直到指定的线程调用pthread_exit、从启动例程中返回或者被取消
+            如果线程从它的启动例程中返回,rval_ptr就包含了返回码
+            如果线程被取消,由rval_ptr指定的内存单元就设置为PTHREAD_CANCELED
+
+            可以通过调用pthread_join自动把线程设置为分离状态,这样资源就会被自动释放
+            如果线程已经处于分离状态,pthread_join调用就会失败返回,返回EINVAL
+
+            如果对线程的返回值并不感兴趣可以把rval_ptr设置为NULL,这种情况下,调用pthread_join函数可以等待
+            指定的线程终止,但不获取线程的终止状态
+
+            见Chapter_11/getExitCode.c  获取已终止线程的退出码
+            见Chapter_11/pthread_exit.c pthread_exit参数的不正确使用
+
+        #include <pthread.h>
+        int pthrenad_cancel(pthread_t tid);
+
+        函数返回值:
+            成功,返回0
+            出错,返回错误编号
+
+        函数说明:
+            线程通过调用pthread_cancel函数来请求取消同一进程中的其他线程
+
+            注:
+                pthread_cancel函数并不等待线程终止,它仅仅提出请求
+
+        #include <pthread.h>
+        void pthread_cleanup_push(void (*rtn)(void *), void *arg);
+        void pthread_cleanup_pop(int execute);
+
+        函数说明:
+            线程可以安排它退出时需要调用的函数,类似于进程退出时可以用atexit函数安排退出
+            这样的函数称为线程清理处理程序(thread cleanup handler),一个线程可以建立多个清理处理程序
+            处理程序记录在栈中,也就是说,它们的执行顺序与它们的注册时间相反
+
+            当线程执行一下动作时,清理函数rtn是由pthread_cleanup_push函数调度的,调用时只有一个参数arg:
+                a.  调用pthread_exit时
+                b.  响应取消请求时
+                c.  用非零execute参数调用pthread_cleanup_pop时
+            如果execute参数设置为0,清理函数将不被调用
+            不管发生上述哪种情况,pthread_cleanup_pop都将删除上次pthread_cleanup_push调用建立的清理处理程序
+
+        注:
+            当线程是从启动例程中返回而终止的话,它的清理处理程序就不会被调用
+
+            这些函数有一个限制,由于它们可以实现为宏,所以必须在与线程相同的作用域以匹配对的形式使用
+            pthread_cleanup_push的宏定义可以包含字符{,这种情况下,在pthread_cleanup_pop的定义中要有
+            对应的匹配字符}.
+
+        见Chapter_11/cleanupPth.c   使用线程清理处理程序的例子
+
+        默认情况下,线程的终止状态会保存直到对该线程调用pthread_join;
+        如果线程已经被分离,线程的底层存储资源可以在线程终止时立即被收回,
+        在线程分离后,我们不能用pthread_join函数等待它的终止状态,因为对分离状态的线程调用pthread_join会
+        产生未定义行为
+
+        #include <pthread.h>
+        int pthread_detach(pthread_t tid);
+
+        返回值:
+            成功,返回0
+            出错,返回错误号
+
+        函数说明:
+            调用pthread_detach分离线程
