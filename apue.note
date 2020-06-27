@@ -1774,7 +1774,7 @@
             volatitle声明的变量仍然存放在存储器中
 
         重点:
-            如果要编写使用非局部跳转的可移植程序,必须使用volatitle属性,禁止编译器对该属性变量进行优化
+            如果要编写使用非局部跳转的可移植程序,必须使用volatile属性,禁止编译器对该属性变量进行优化
 
             见Chapter_7/longjmp.c 测试程序,测试longjmp对各类变量的影响
 
@@ -3111,3 +3111,273 @@
 
         函数说明:
             调用pthread_detach分离线程
+
+    5、 线程同步
+        变量增量操作步骤:
+            a.  从内存单元读入寄存器
+            b.  在寄存器中对变量做增量操作
+            c.  把新的值写回内存单元
+
+        1)  互斥量  -   mutex
+            互斥量是用pthread_mutex_t类型表示
+            初始化方式:
+                PTHREAD_MUTEX_INITIALIZER   -   适用于静态分配的互斥量
+                pthread_mutex_init          -   适用所有
+
+            #include <pthread.h>
+            int pthread_mutex_init(pthread_mutex_t *restrict mutex, const pthread_mutexattr_t *restrict attr)
+            int pthread_mutex_destroy(pthread_mutex_t *mutex);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                pthread_mutex_init()    -   用于初始化环境变量,参数attr传入NULL时,使用默认属性初始化
+                pthread_mutex_destroy() -   用于销毁互斥量
+
+            #include <pthread.h>
+            int pthread_mutex_lock(pthread_mutex_t *mutex);
+            int pthread_mutex_trylock(pthread_mutex_t *mutex);
+            int pthread_mutex_unlock(pthread_mutex_t *mutex);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                pthread_mutex_lock      -   对互斥量进行加锁,如果获取不到锁,调用线程将阻塞直到获得锁
+                pthread_mutex_trylock   -   试图对互斥量进行加锁,获取不到立即返回,返回EBUSY
+                pthread_mutex_unlock    -   解锁
+
+            见Chapter_11/mutex.c    使用互斥量保护数据结构
+
+        2)  避免死锁
+            死锁产生方式:
+                a.  线程试图对同一个互斥量加锁两次
+                b.  A线程持有第一个互斥量获取第二个,B线程持有第二个互斥量获取第一个
+
+            控制互斥量加锁的顺序来避免死锁的发生:
+                如对AB两个互斥量进程加锁时,总是要求在对互斥量B加锁之前锁住A
+
+            使用pthread_mutex_trylock来避免死锁,当获取多个锁时,获取不到指定锁时就释放自身所
+            占有的所有锁,过一段时间再尝试重新获取
+            
+            见Chapter_11/mutex2.c   更新mutex.c,使用两个互斥量
+            见Chapter_11/mutex3.c   2的简化版
+
+        3)  pthread_mutex_timedlock 函数
+
+            #include <pthread.h>
+            #include <time.h>
+            int pthread_mutex_timedlock(pthread_mutex_t *restrict mutex, 
+                                        const struct timespec *restrict tsptr);
+
+            返回值:
+                若成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                当一个线程试图获取一个已经加锁的互斥量时,pthread_mutex_timedlock互斥量原语允许绑定线程阻塞
+                时间,pthread_mutex_timedlock函数与pthread_mutex_lock是基本等价的,但是在达到超时时间值时,
+                pthread_mutex_timedlcok不会对互斥量进行加锁,而是返回错误码ETIMEDOUT
+
+            见Chapter_11/timedlock.c    演示pthread_mutex_timedlock使用
+
+        4)  读写锁(共享互斥锁)
+            读写锁可以有3种状态:
+                a.  读模式下加锁
+                b.  写模式下加锁
+                c.  不加锁
+            一次只有一个线程可以占有写模式,但是可以有多个线程同时占有读模式
+            写模式的加锁竞序条件应高于读模式,防止锁一直被读占用
+            适用于对数据结构读的次数远大于写的情况
+
+            #include <pthread.h>
+            int pthread_rwlock_init(pthread_rwlock_t *restrict rwlock,
+                                    const pthread_rwlockattr_t *restrict attr);
+            int pthread_rwlock_destroy(pthread_rwlock_t *rwlock);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                pthread_rwlock_init     -   读写锁初始化
+                pthread_rwlock_destroy  -   读写锁销毁
+
+                PTHREAD_RWLOCK_INITIALIZER  -   读写锁的静态初始化方式,使用锁的默认属性
+
+            #include <pthread.h>
+            int pthread_rwlock_rdlock(pthread_rwlock_t *rwlock);
+            int pthread_rwlock_wrlock(pthread_rwlock_t *rwlock);
+            int pthread_rwlock_unlock(pthread_rwlock_t *rwlock);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                pthread_rwlock_rdlock   -   在读模式下加锁
+                pthread_rwlock_wrlock   -   在写模式下加锁
+                pthread_rwlock_unlock   -   解锁
+
+            #include <pthread.h>
+            int pthread_rwlock_tryrdlock(pthread_rwlock_t *rwlock);
+            int pthread_rwlock_trywrlock(pthread_rwlock_t *rwlock);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                可以获取锁时,这两个函数返回0,否则,他们返回错误EBUSY
+
+            见Chapter_11/RWlock.c   读写锁实例
+
+        5)  带有超时的读写锁
+            
+            #include <pthread.h>
+            #include <time.h>
+            int pthread_rwlock_timedrdlock(pthread_rwlock_t *restrict rwlock,
+                                            const struct timespec *restrict tsptr);
+            int pthread_rwlock_timedwlock(pthread_rwlock_t *restrict rwlock,
+                                            const struct timespec *restrict tsptr);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                如果不能获取锁,那么超时到期时,这两个函数将返回ETIMEDOUT错误
+
+        6)  条件变量
+
+            由pthread_cond_t数据类型表示条件变量
+            使用前需初始化,初始化的两种方式:
+                a.  PTHREAD_COND_INITIALIZER    -   赋值给静态分配的条件变量
+                b.  pthread_cond_init
+
+            #include <pthread.h>
+            int pthread_cond_init(pthread_cond_t *restrict cond,
+                                    const pthread_condattr_t *restrict attr);
+            int pthread_cond_destroy(pthread_cond_t *cond);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                除非需要创建一个具有非默认属性的条件变量,否则pthread_cond_init函数的attr参数
+                可以设置为NULL
+
+            #include <pthread.h>
+            int pthread_cond_wait(pthread_cond_t *restrict cond,
+                                    pthread_mutex_t *restrict mutex);
+            int pthread_cond_timedwait(pthread_cond_t *restrict cond,
+                                        pthread_mutex *restrict mutex,
+                                        const struct timespec *restrict tsptr);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                使用pthread_cond_wait函数阻塞等待条件变量变为真
+                传递给pthread_cond_wait的互斥量对条件进行保护,调用者把锁住的互斥量传给函数,函数然后
+                自动把调用线程放到等待条件的线程列表上,对互斥量解锁
+
+                pthread_cond_wait函数所做的3个作用:
+                    a.  阻塞等待一个条件变量满足
+                    b.  释放已掌握的互斥锁,相当于解锁
+                        (前两步为一个原子操作)
+                    c.  当被唤醒时,函数返回,解除阻塞并重新申请获取互斥锁
+
+                pthread_cond_timedwait函数的第3个参数传入绝对时间(当前时间+等待时间)
+                可以使用clock_gettime函数获取timespec结构表示的当前时间
+                也可使用gettimeofday获取timeval结构表示的当前时间
+
+
+            #include <pthread.h>
+            int pthread_cond_signal(pthread_cond_t *cond);
+            int pthread_cond_broadcast(pthread_cond_t *cond);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                pthread_cond_signal     -   至少唤醒一个等待该条件的线程
+                pthread_cond_broadcast  -   唤醒等待该条件的所有线程
+
+            见Chapter_11/condTest.c
+
+        7)  自旋锁
+            自旋锁与互斥量类似,但它不是通过休眠使进程阻塞,而是在获取锁之前一直处于忙轮询阻塞状态
+            自旋锁适用于一下情况:
+                a.  锁被持有的时间短,而且线程并不希望在重新调度上花费太多成本
+
+            #include <pthread.h>
+            int pthread_spin_init(pthread_spinlock_t *lock, int pshared);
+            int pthread_spin_destroy(pthread_spinlock_t *lock);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                pshared参数表示进程共享属性,表明自旋锁是如何获取的
+                如果它设置为PTHREAD_PROCESS_SHARED,则自旋锁能被可以访问锁底层内存的线程获取
+                设置为PTHREAD_PROCESS_PRIVATE,自旋锁只能被初始化该锁的进程内部的线程访问
+
+            #include <pthread.h>
+            int pthread_spin_lock(pthread_spinlock_t *lock);
+            int pthread_spin_trylock(pthread_spinlock_t *lock);
+            int pthread_spin_unlock(pthread_spinlock_t *lock);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                pthread_spin_lock       -   对自旋锁进行加锁,在获取锁之前一直自旋(忙轮询)
+                pthread_spin_trylock    -   如果不能获取锁,就立即返回EBUSY错误
+                pthread_spin_unlock     -   解锁
+
+        8)  屏障
+            屏障(barrier)是用户协调多个线程并行工作的同步机制
+            屏障允许每个线程等待,直到所有的合作线程都到达某一点,然后从该点继续执行
+            pthread_join函数就是一种屏障
+
+            #include <pthread.h>
+            int pthread_barrier_init(pthread_barrier_t *restrict barrier,
+                                    const pthread_barrierattr_t *restrict attr,
+                                    unsigned int count);
+            int pthread_barrier_destroy(pthread_barrier_t *barrier);
+
+            返回值:
+                成功,返回0
+                出错,返回错误编号
+
+            函数说明:
+                初始化屏障时,可以使用count参数指定在允许所有线程继续运行之前,必须到达屏障的线程数目
+                使用attr参数指定屏障对象的属性,传NULL使用默认属性
+
+            #include <pthread.h>
+            int pthread_barrier_wait(pthread_barrier_t *barrier);
+
+            返回值:
+                成功,返回0或者PTHREAD_BARRIER_SERIAL_THREAD
+                出错,返回错误编号
+
+            函数说明:
+                使用pthread_barrier_wait函数来表明,线程已完成工作,准备等待其他线程赶上来
+                调用pthread_barrier_wait的线程在屏障计数未满足条件时,会进入休眠状态;
+                如果该线程是最后一个调用pthread_barrier_wait的线程,则所有的线程都会被唤醒
+
+            对于一个任意线程,pthread_barrier_wait函数返回了PTHREAD_BARRIER_SERIAL_THREAD,其余的线程
+            看到的返回值是0,这使得一个线程可以作为主线程,它可以工作在其他所有线程已完成的工作结果上
+
+            一旦达到屏障计数值,而且线程处于非阻塞状态,屏障就可以被重用,且屏障计数不会变化
+
+            见Chapter_11/barrierTest.c

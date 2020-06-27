@@ -1,4 +1,4 @@
-TATGET += $(addprefix bin/, testDef pthread_create getExitCode pthread_exit cleanupPth)
+TATGET += $(addprefix bin/, testDef pthread_create getExitCode pthread_exit cleanupPth TestPthr timedlock makeTimeOut)
 
 LIBS = -lpthread
 
@@ -17,4 +17,16 @@ bin/pthread_exit:${OBJ_O} src/Chapter_11/pthread_exit.c
 	gcc $^ ${LIBS} ${D_INC} -o $@
 
 bin/cleanupPth:${OBJ_O} src/Chapter_11/cleanupPth.c
+	gcc $^ ${LIBS} ${D_INC} -o $@
+
+bin/TestPthr:${OBJ_O} src/Chapter_11/TestPthr.c
+	gcc $^ ${LIBS} ${D_INC} -o $@
+
+bin/timedlock:${OBJ_O} src/Chapter_11/timedlock.c
+	gcc $^ ${LIBS} ${D_INC} -o $@
+
+bin/makeTimeOut: src/Chapter_11/makeTimeOut.c
+	gcc $^ -o $@
+
+bin/barrierTest:${OBJ_O} src/Chapter_11/barrierTest.c
 	gcc $^ ${LIBS} ${D_INC} -o $@
