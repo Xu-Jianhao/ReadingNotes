@@ -127,6 +127,9 @@ void    TELL_CHILD(pid_t);
 void    WAIT_PARENT(void);
 void    WAIT_CHILD(void);
 
+/* set CLOEXEC */
+int set_cloexec(int);
+
 #endif /* _APUE_H */
 
 

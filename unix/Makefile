@@ -17,6 +17,7 @@ include src/Chapter_9/Makefile
 include src/Chapter_10/Makefile
 include src/Chapter_11/Makefile
 include src/Chapter_12/Makefile
+include src/Chapter_13/Makefile
 
 $(info TATGET is ${TATGET})
 

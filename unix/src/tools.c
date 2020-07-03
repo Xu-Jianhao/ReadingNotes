@@ -8,6 +8,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include "apue.h"
+#include <fcntl.h>
 
 static volatile sig_atomic_t sigflag;       /* set nonzero by sig handler */
 static sigset_t newmask, oldmask, zeromask;
@@ -65,4 +66,17 @@ void WAIT_CHILD(void)
     /* Reset signal mask to orignal value */
     if(sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0)
         err_sys("SIG_SETMASK error");
+}
+
+/* 设置文件描述符在执行时关闭. */
+int set_cloexec(int fd)
+{
+    int     val;
+    
+    if((val = fcntl(fd, F_GETFD, 0)) < 0)
+        return(-1);
+
+    val |= FD_CLOEXEC;      /* enable close-on-exec */
+
+    return(fcntl(fd, F_SETFD, val));
 }
