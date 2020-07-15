@@ -4133,3 +4133,562 @@
 
     7、 客户进程-服务器进程模型
         见src/tools.c   set_cloexec(int fd) 函数
+
+第14章、 高级I/O
+
+    1、前言
+        本章涵盖的概念和函数:
+            非阻塞I/O、记录锁、I/O多路转接(select和poll函数)、异步I/O、readv和writev函数
+            以及存储映射I/O(mmap)
+
+    2、非阻塞I/O
+        系统调用分为两类:   低速系统调用和其他
+        低速系统调用是可能会使进程永远阻塞的一类系统调用
+        非阻塞I/O使我们可以发出open、read和write这样的I/O操作,并使这些函数在调用后不能立即完成时,立即
+        出错返回,表示该操作如继续执行将阻塞
+
+        对于一个给定的描述符,有两种为其指定非阻塞I/O的方法:
+        1)  如果调用open获得描述符,则可指定O_NONBLOCK标志
+        2)  对于已经打开的一个文件描述符,则可以调用fcntl,由该函数打开O_NONBLOCK文件状态标志
+
+    3、 记录锁(record locking)
+        记录锁的功能是: 当第一个进程正在读或修改某个文件的某个部分时,使用记录锁可以阻止其他进程修改同一
+                        文件区。
+        记录锁更准确的说法是字节范围锁(byte-range locking),因为它锁定的只是文件中的一个区域(也可能是整个文件)
+
+        #include <fcntl.h>
+        int fcntl(int fd, int cmd, ... /* struct flock *flockptr */);
+
+        返回值:
+            成功,依赖于cmd
+            出错,返回-1
+
+        函数说明:
+            对于记录锁,cmd是F_GETLK、F_SETLK 或 F_SETLKW; 第三个参数(我们将调用flockptr)是一个指向flock结构
+            的指针:
+                struct flock {
+                    short   l_type;         /* F_RDLCK, F_WRLCK, or F_UNLCK */
+                    short   l_whence;       /* SEEK_SET, SEEK_CUR, or SEEK_END */
+                    off_t   l_start;        /* offset in bytes, relative to l_whence */
+                    off_t   l_len;          /* length, in bytes; 0 means lock to EOF */
+                    pid_t   l_pid;          /* returned with F_GETLK */
+                };
+            flock 结构说明:
+                l_type  -   锁类型: F_RDLCK(共享读锁)、F_WRLCK(独占性写锁)或F_UNLCK(解锁一个区域)
+                l_len   -   区域的字节长度
+                l_pid   -   进程的ID持有的锁能阻塞当前进程(仅由F_GETLK返回)
+                l_start和l_whence   -   要加锁或解锁区域的起始字节偏移量
+
+            关于加锁解锁区域的注意事项:
+                a.  指定区域起始偏移量的两个元素与lseek函数中最后两个参数类似
+                b.  锁可以在当前文件尾端处开始或越过尾端处开始,但是不能在文件起始位置之前开始
+                c.  若l_len为0,则表示锁的范围可以扩展到最大可能偏移量;这意味着不管向该文件追加写了多少
+                    数据,它们都可以处于锁的范围内,而且起始位置可以是文件中的任意一个位置
+                d.  为了对整个文件加锁,我们设置l_start和l_whence指向文件的起始位置,并且指定长度(l_len)为0
+                    (有多种方法可以指定文件起始处,但常用的方法是将l_start指定为0,l_whence指定为SEEK_SET)
+
+            共享读锁(L_EDLCK)和独占性写锁(L_WRLCK)的规则是:
+                任意多个进程在一个给定的字节上可以有一把共享的读锁,但是在一个给定字节上只能有一个进程有一把
+                独占写锁;
+                进一步而言,如果在一个给定字节上已经有一把或多把读锁,则不能在该字节上再加写锁;
+                如果在一个字节上已经有一把独占性写锁,则不能再对它加任何读锁
+
+            上面说明的兼容性规则适用于不同进程提出的锁请求,并不适用于单个进程提出的多个锁请求。
+            如果一个进程对一个文件区间已经有了一把锁,后来该进程又企图在同一个文件区间再加一把锁,那么新锁将
+            替换已有锁。
+            加读锁时,该描述符必须是读打开的;加写锁时,该描述符必须是写打开的
+
+            fcntl函数的3种命令:
+                F_GETLK     -   判断由flockptr所描述的锁是否会被另外一把锁排斥(阻塞)
+                F_SETLK     -   设置由flockptr所描述的锁
+                F_SETLKW    -   这个命令是F_SETLK的阻塞版本(命令名中的W表示等待wait)
+
+            用F_GETLK测试能否建立一把锁,然后用F_SETLK或F_SETLKW试图建立那把锁
+
+        锁的隐含继承和释放
+            关于记录锁的自动继承和释放有3条规则:
+            a.  锁与进程和文件两者相关联
+                第一,当一个进程终止时,它所建立的锁全部释放
+                第二,当一个描述符关闭时,该进程通过这一描述符引用的文件上的任何一把锁都会释放
+
+            b.  由fork产生的子进程不继承父进程所设置的锁
+                这意味着若一个进程得到了一把锁,然后调用fork,那么对于父进程获得的锁而言,子进程被视为另一个进程。
+                对于通过fork从父进程处继承过来的描述符,子进程需要调用fcntl才能获得它自己的锁
+
+            c.  在执行exec后,新程序可以继承原执行程序的锁
+                注意,如果对一个文件描述符设置了执行时关闭标志,那么当作为exec的一部分关闭该文件描述符时,将释放
+                相应文件的所有锁
+
+    4、 I/O多路转接
+        4.1、 select 和 pselect 函数
+            传给select的参数告诉内核:
+                a.  我们所关心的描述符
+                b.  对于每个描述符我们所关心的条件(是否想从一个给定的描述符读,是否想写一个给定的描述符,
+                    是否关心一个给定描述符的异常事件)
+                c.  愿意等待多长时间(可以永远等待、等待一个固定的时间或者根本不等待)
+
+            从select返回时,内核告诉我们:
+                a.  已经准备好的描述符的总数量
+                b.  对于读、写或异常这3个条件中的每一个,哪些描述符已准备好
+
+            #include <sys/select.h>
+            int select(int maxfdpl, fd_set *restrict readfds, fd_set *restrict writefds,
+                        f_set *restrict exceptfds, struct timeval *restrict tvptr);
+
+            返回值:
+                准备就绪的描述符数目;
+                若超时,返回0;
+                出错,返回-1
+
+            函数说明:
+                tvptr   -   它指定愿意等待的时间长度,单位为秒和微秒,有一下3种情况:
+                    tvptr == NULL
+                        永远等待,如果捕捉到一个信号则中断此无限等待,此时select返回-1,errno设置为EINTR
+                    tvptr->tv_sec == 0 && tvptr->tv_usec == 0
+                        根本不等待,测试所有指定的描述符并立即返回,这是轮训系统找到多个描述符状态而不阻塞
+                        select函数的方法
+                    tvptr->tv_sec != 0 || tvptr->tv_usec != 0
+                        等待指定时间,当指定的描述符之一已准备好,或超时时立即返回
+
+                readfds\writefds\exceptfds  -   指向描述符集的指针
+                    fd_set  -   通常认为它是一个很大的字节数组,它可以为每一个描述符保持一位
+
+                maxfdpl -   最大文件描述符编号值加1
+
+            select 函数返回值处理:
+                a.  返回值-1表示出错
+                b.  返回值0表示没有描述符准备好,此时所有的描述符集都会置0
+                c.  一个正返回值说明了已经准备好的描述符数;该值是3个描述符集中已准备好的描述符数之和,
+                    所以如果同一个描述符已准备好读和写,那么在返回值中会对其计两次数;在这种情况下,3个
+                    描述符集中仍旧打开的位对应于已准备好的描述符.
+                    对于"准备好"的含义进一步说明:
+                        1)  若对读集(readfds)中的一个描述符进行的read操作不会阻塞,则认为此描述符是准备好的
+                        2)  若写写集(writefds)中的一个描述符进行的write操作不会阻塞,则认为此描述符是准备好的
+                        3)  若对异常条件集(exceptfds)中的一个描述符有一个未决异常条件,则认为此描述符是准备好的;
+                            异常条件包括:在网络连接上到达带外的数据,或者在处于数据包模式的伪终端上发生了某些
+                            条件
+                        4)  对于读、写和异常条件,普通文件的文件描述符总是返回准备好
+                
+            对与fd_set数据类型,唯一可以进行的处理是: 分配一个这种类型的变量,将这种类型的变量赋值给同类型
+            的另一个变量,或对这种类型的变量使用下列4个函数中的一个
+
+            #include <sys/select.h>
+            int FD_ISSET(int fd, fd_set *fdset);    若fd在描述符集中,返回非0值;否则返回0
+            void FD_CLR(int fd, fd_set *fdset);
+            void FD_SET(int fd, fd_set *fd_set *fdset);
+            void FD_ZERO(fd_set *fdset);
+
+            函数说明:
+                FD_ZERO -   将一个fd_set变量所有位设置为0
+                FD_SET  -   开启描述符集中的某一位
+                FD_CLR  -   清除描述符集中的某一位
+                FD_ISSET    -   测试描述符集中的一个指定位是否已打开
+
+                使用示例:
+                    fd_set  rset;
+                    int     fd;
+                    FD_ZERO(&rset);                 /* 将rset清空 */
+                    FD_SET(fd, &rset);              /* 将fd添加到集合中 */
+                    FD_SET(STDIN_FILENO, &rset);    /* 将STDIN_FILENO添加到集合中 */
+                    FD_ISSET(fd, &rset);            /* 测试fd是否在rset中 */
+
+            如果在一个描述符上碰到了文件尾端,则select会认为该描述符是可读的;然后调用read,它返回0,这是UNIX
+            系统指示到达文件尾端的方法。
+
+            POSIX.1也定义了一个select的变体,称为pselect
+
+            #include <sys/select.h>
+            int pselect(int maxfdpl, fd_set *restrict readfds, fd_set *restrict writefds, 
+                        fd_set *restrict exceptfds, const struct timespec *restrict tsptr, 
+                        const sigset_t *restrict sigmask);
+            返回值:
+                准备就绪的描述符数目;
+                若超时,返回0;
+                若出错,返回-1
+
+            函数说明:
+                除了下列几点外,pselect 和 select 相同:
+                    a.  select的超时值用timeval结构指定,但pselect使用timespec结构
+                    b.  pselect 的超时值被声明为const,这保证了调用pselect不会改变此值
+                    c.  pselect 可使用可选信号屏蔽字;若sigmask为NULL,那么在与信号有关的方面,pselect 
+                        的运行状况和select相同;否则,sigmask指向一信号屏蔽字,在调用pselect时,以原子操作的方式
+                        安装该信号屏蔽字,在返回时,恢复以前的信号屏蔽字
+
+        4.2、 函数poll
+            
+            #include <poll.h>
+            int poll(struct pollfd fdarray[], nfds_t nfds, int timeout);
+
+            返回值:
+                准备就绪的描述符数目;
+                若超时,返回0;
+                若出错,返回-1;
+
+            函数说明:
+                与select不同,poll不是为每个条件(可读性、可写性和异常条件)构造一个描述符集,而是构造一个pollfd
+                结构的数组,每个数组元素指定一个描述符编号以及我们对该描述符感兴趣的条件。
+                    struct pollfd {
+                        int     fd;         /* file descriptor to check, or < 0 to ignore */
+                        short   events;     /* events of interest on fd */
+                        short   revents;    /* events that occurred on fd */
+                    };
+
+                fdarray数组中的元素由nfds指定
+                events 值告诉内核我们关心的是每个描述符的哪些事件;
+                返回时,revents成员由内核设置,用于说明每个描述符发生了哪些事件
+                
+                events 和 revents标志:
+                POLLIN      -   可以不阻塞的读高优先级数据以外的数据,等效于 POLLRDNORM|POLLRDBAND
+                POLLRDNORM  -   可以不阻塞的读普通数据
+                POLLRDBAND  -   可以不阻塞的读优先级数据
+                POLLPRI     -   可以不阻塞的读优先级数据
+
+                POLLOUT     -   可以不阻塞的写普通数据
+                POLLWRNORM  -   与POLLOUT相同
+                POLLWRBAND  -   可以不阻塞的写优先级数据
+
+                POLLERR     -   已出错
+                POLLHUP     -   已挂断
+                POLLNVAL    -   描述符没有引用一个打开文件
+
+                前4行测试的是可读性,接下来3行测试的是可写性,最后3行测试的是异常条件
+                最后3行是由内核在返回时设置的,即使在events字段中没有指定这3个值,如果相应条件发生,在
+                revents中也会返回它们
+
+                当一个描述符被挂断(POLLHUP)后,就不能再写该描述符,但是有可能仍然可以从该描述符读到数据
+        
+                poll最后一个参数指定等待时长,3种情形:
+                    timeout == -1
+                        永远等待(某些系统在<stropts.h>中定义了常量INFTIM,其值是-1)
+                    timeout == 0
+                        不等待
+                    timeout > 0
+                        等待timeout毫秒
+
+        5、 异步I/O
+            
+            5.1、 System V 异步I/O
+                在System V中,异步I/O是STREAMS系统的一部分,它只对STREAMS设备和STREAMS管道起作用.
+                System V的异步I/O信号是SIGPOLL
+
+                为了对一个STREAMS设备启动异步I/O,需要调用ioctl,将它的第二个参数(request)设置成I_SETSIG,
+                第3个参数设置为下列一个或多个常量构成的整形值:
+                    S_INPUT     -   可以不阻塞的读取数据
+                    S_RDNORM    -   可以不阻塞的读取普通数据
+                    S_RDBAND    -   可以不阻塞的读取优先级数据
+                    S_BANDURG   -   若此常量和S_RDBAND一起指定,当我们可以不阻塞的读取优先数据时,产生SIGURG
+                                    信号而非SIGPOLL
+                    S_HIPRI     -   可以不阻塞的读取高优先级数据
+
+                    S_OUTPUT    -   可以不阻塞的写普通数据
+                    S_WRNORM    -   与S_OUTPUT相同
+                    S_WRBAND    -   可以不阻塞的写优先级数据
+
+                    S_MSG       -   包含SIGPOLL信号的消息已经到达流头部
+                    S_ERROR     -   流有错误
+                    S_HANGUP    -   流已挂起
+
+                除了调用ioctl指定产生SIGPOLL信号的条件以外,还应为该信号建立信号处理程序,对于SIGPOLL的默认
+                动作是终止该进程,所以应当在调用ioctl之前建立信号处理程序
+
+            5.2、 BSD异步I/O
+                在BSD派生的系统中,异步I/O是信号SIGIO和SIGURG的组合,SIGIO是通用异步I/O信号,SIGURG则只用来通知
+                进程网络连接上的带外数据已经到达
+                为了接收SIGIO信号,需执行以下3步:
+                    1)  调用signal或sigaction为SIGIO信号建立信号处理程序
+                    2)  以命令F_SETOWN调用fcntl来设置进程ID或进程组ID,用于接收对于该描述符的信号
+                    3)  以命令F_SETFL调用fcntl设置O_ASYNC文件状态标志,使在该描述符上可以进行异步I/O
+
+                第3步仅能对指向终端或网络的描述符执行
+
+            5.3、 POSIX异步I/O
+                这些异步I/O接口使用AIO控制块来描述I/O操作,aiocb结构定义了AIO控制块.
+                该结构至少包括下面这些字段:
+                    struct aiocb {
+                        int             aio_fildes;     /* file descriptor */
+                        off_t           aio_offset;     /* file offset for I/O */
+                        volatile void   *aio_buf;       /* buffer for I/O */
+                        size_t          aio_nbytes;     /* number of bytes to transfer */
+                        int             aio_reqprio;    /* priority */
+                        struct sigevent aio_sigevent;   /* signal information */
+                        int             aio_lio_opcode; /* operation for list I/O */
+                    }
+                aio_filelds字段表示被打开用来读或写的文件描述符,读或写操作从aio_offset指定的偏移量开始;
+                对于读操作,数据会复制到缓冲区中,该缓冲区从aio_buf指定的地址开始;
+                对于写操作,数据会从这个缓冲区中复制出来;
+                
+                注意,异步I/O操作必须显式的指定偏移量。异步I/O接口并不影响由操作系统维护的文件偏移量,只要不再
+                同一个进程里把异步I/O函数和传统I/O函数混在一起用在同一个文件上,就不会导致什么问题。
+                使用异步I/O接口向一个以追加模式(O_APPEND)打开的文件中写入数据,AIO控制块中的aio_offset字段会被
+                系统忽略。
+
+                其他字段和传统I/O函数中的不一致,应用程序使用aio_reqprio字段为异步I/O请求提示顺序;然而,系统对
+                于该顺序只有有限的控制能力,因此不一定能遵循该提示。
+                aio_lio_opcode字段只能用于基于列表的异步I/O
+                aio_sigevent字段控制,在I/O事件完成后,如何通知应用程序,这个字段通过sigevent结构来描述:
+                    struct sigevent {
+                        int             sigev_notify;       /* notify type */ 
+                        int             sigev_signo;        /* signal number */
+                        union sigval    sigev_value;        /* notify argument */
+                        void (*sigev_notify_function)(union sigval);    /* notify function */
+                        pthread_attr_t *sigev_notify_attributes;        /* notify attrs */
+                    }
+                sigev_notify字段控制通知的类型,取下列值:
+                    1)  SIGEV_NONE      -   异步I/O请求完成后,不通知进程
+                    2)  SIGEV_SIGNAL    -   异步I/O请求完成后,长生由sigev_signo字段指定的信号,如果应用程序
+                                            已选择捕捉信号,且在建立信号处理程序的时候指定了SA_SIGINFO标志,
+                                            那么该信号将被入队(如果支持排队信号);信号处理程序会传送给一个
+                                            siginfo结构,该结构的si_value字段被设置为sigev_value
+                    3)  SIGEV_THREAD    -   当异步I/O请求完成时,由sigev_notify_function 字段指定的函数被调用。
+                                            sigev_value字段被传入作为它的唯一参数;除非sigev_notify_attributes
+                                            字段被设定为pthread属性结构的地址,且该结构指定了一个另外的线程属性,
+                                            否则该函数将在分离状态下的一个单独的线程执行
+
+                在进行异步I/O之前需要先初始化AIO控制块,调用aio_read函数来进行异步读操作,或者调用aio_write
+                函数来进行异步写操作
+
+                #include <aio.h>
+                int aio_read(struct aiocb *aiocb);
+                int aio_write(struct aiocb *aiocb);
+
+                返回值:
+                    成功,返回0
+                    出错,返回-1
+
+                函数说明:
+                    当这些函数返回成功时,异步I/O请求便已经被操作系统放入等待处理的队列中了;
+                    这些返回值与实际I/O操作的结果没有任何关系;
+
+                要想强制所有等待中的异步操作不等待而写入持久化的存储中,可以设立一个AIO控制块并调用aio_fsync函数
+
+                #include <aio.h>
+                int aio_fsync(int op, struct aiocb *aiocb);
+
+                返回值:
+                    成功,返回0
+                    出错,返回-1
+
+                函数说明:
+                    AIO控制块中的aio_fildes字段指定了其异步写操作被同步的文件;如果op参数设定为O_DSYNC,
+                    那么操作执行起来就会像调用了fdatasync一样,如果op参数设定为O_SYNC,那么操作执行起来就会像调用
+                    了fsync一样。
+
+                    像aio_read和aio_write函数一样,在安排了同步时,aio_fsync操作返回;
+                    在异步同步操作完成之前,数据不会被持久化,AIO控制块控制我们如何被通知
+
+                为了获知一个异步读、写或者同步操作的完成状态,需要调用aio_error函数
+
+                #include <aio.h>
+                int aio_error(const struct aiocb *aiocb);
+
+                返回值:
+                    0       -   异步操作成功完成,需要调用aio_return函数获取返回值
+                    -1      -   对aio_err的调用失败,这种情况下,errno会告诉我们为什么
+                    EINPROGRESS     -   异步读、写或同步操作仍在等待
+                    其他情况        -   其他任何返回值是相关异步操作失败返回的错误码
+
+                如果异步操作成功,可以调用aio_return函数来获取异步操作的返回值
+                #include <aio.h>
+                ssize_t aio_return(const struct aiocb *aiocb);
+
+                返回值:
+                    失败,返回-1并设置errno
+                    其他情况,返回异步操作的结果
+
+                函数说明:
+                    每个异步操作只调用一次aio_return, 一旦调用了该函数,操作系统就可以释放掉包含了I/O操作返回值
+                    的记录
+
+                执行I/O操作时,如果还有其他事务要处理而不想被I/O操作阻塞,就可以使用异步I/O;
+                然而,如果在完成了所有事务时,还有异步操作未完成时,可以调用aio_suspend函数来阻塞进程,直到操作
+                完成。
+                #include <aio.h>
+                int aio_suspend(const struct aiocb *const list[], int nent, const struct timespec *timeout);
+
+                返回值:
+                    成功,返回0
+                    出错,返回-1
+
+                函数说明:
+                    aio_suspend可能会返回三种情况中的一种:
+                        被一个信号中断,返回-1,并将errno设置为EINTR;
+                        如果在没有任何I/O操纵完成的情况下,阻塞的时间超过了函数在可选的timeout参数所指定的时间
+                        限制,那么aio_suspend将返回-1,并将errno设置为EAGAIN;
+                        如果有任何I/O操作完成,aio_suspend将返回0
+
+                    list参数是一个指向AIO控制块数组的指针,nent参数表明了数组中的条目数;
+                    数组中的空指针会被跳过,其他条目都必须指向已用于初始化异步I/O操作的AIO控制块
+
+                当还有我们不想再完成的等待中的异步I/O操作时,可以尝试使用aio_cancel函数来取消它们
+                #include <aio.h>
+                int aio_cancel(int fd, struct aiocb *aiocb);
+
+                返回值:
+                    AIO_ALLDONE     -   所以操作在尝试取消它们之前已经完成
+                    AIO_CANCELED    -   所以要求的操作已被取消
+                    AIO_NOTCANCELED -   至少有一个要求的操作没有被取消
+                    -1              -   对aio_cancel的调用失败,错误码将被存储在errno中
+
+                函数说明:
+                    fd参数指定了那个未完成的异步I/O操作的文件描述符;
+                    如果aiocb参数为NULL,系统将会尝试取消所有该文件上未完成的异步I/O操作
+                    其他情况,系统将尝试取消由AIO控制块描述符的单个异步I/O操作
+
+                    如果异步I/O操作被成功取消,对相应的AIO控制块调用aio_error函数会返回错误ECANCELED
+                    如果操作不能被取消,那么相应的AIO控制块不会因为对aio_cancel的调用而被修改
+
+                
+                #include <aio.h>
+                int lio_listio(int mode, struct aiocb *restrict const list[restrict], int nent,
+                                struct sigevent *restrict sigv);
+
+                返回值:
+                    成功,返回0
+                    出错,返回-1
+
+                函数说明:
+                    该函数提交一系列由一个AIO控制块列表描述的I/O请求
+                    mode参数决定了I/O是否真的是异步的,如果该参数被设定为LIO_WAIT,lio_listio函数将在所有由
+                    列表指定的I/O操作完成后返回,在这种情况下,sigev参数将被忽略。
+                    如果mode参数被设定为LIO_NOWAIT,lio_listio函数将在I/O请求入队后立即返回。
+                    进程将在所有I/O操作完成后,按照sigev参数指定的,被异步的通知;如果不想被通知,可以把sigev设定
+                    为NULL
+                    在每个AIO控制块中,aio_lio_opcode字段指定了该操作是一个读操作(LIO_READ)、写操作(LIO_WRITE),
+                    还是将被忽略的空操作(LIO_NOP).读操作会按照对应的AIO控制块被传给了aio_read函数来处理,类似的
+                    写操作会被传给aio_write函数来处理
+
+        6、 readv 和 writev 函数
+
+        #include <sys/uio.h>
+        ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
+        ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
+
+        返回值:
+            已读或已写的字节数
+            出错,返回-1
+
+        函数说明:
+            readv 和 writev函数用于在一次函数调用中读、写多个非连续缓冲区,有时也将这两个函数称为散布读(scatter
+            read)和聚集写(gather write).
+
+            这两个函数的第二个参数指向iovec结构数组的一个指针:
+                struct iovec {
+                    void    *iov_base;      /* starting address of buffer */
+                    size_t  iov_len;        /* size of buffer */
+                };
+            iov数组中的元素数由iovcnt指定,其最大值受限于IOV_MAX
+            writev函数从缓冲区中聚集输出数据的顺序是:iov[0]、iov[1]直至iov[iovcnt-1];
+            writev返回输出的字节总数,通常应等于所有缓冲区长度之和
+
+        7、 readn 和 writen 函数
+            管道、FIFO以及某些设备(特别是终端和网络)有下列两种性质:
+            1)  一次read操作所返回的数据可能少于所要求的数据,即使还没有达到文件尾端;这不是一个错误,应当
+                继续读该设备
+            2)  一次write操作的返回值也可能少于指定输出的字节数,这可能是某个因素造成的,例如,内核输出缓冲区
+                变满。这也不是错误,应当继续写余下的数据
+
+            通常在读、写一个管道、网络设备或终端时,需要考虑这些特性。readn和writen的功能分别是读、写指定的
+            N字节数据,并处理返回值可能小于要求值的情况,这两个函数只是按需多次调用read和write直至读、写了N字节
+            数据。
+
+            #include "apue.h"
+            ssize_t readn(int fd, void *buf, size_t nbytes);
+            ssize_t writen(int fd, void *buf, size_t nbytes);
+
+            返回值:
+                读、写的字节数
+                出错,返回-1
+
+        8、 存储映射I/O(memory-mapped I/O)
+            存储映射I/O能将一个磁盘文件映射到存储空间中的一个缓冲区上,于是,当从缓冲区中取数据时,就相当于
+            读文件中的相应字节。与此类似,将数据存入缓冲区时,相应字节就自动写入文件。
+            这样就可以在不使用read和write的情况下执行I/O
+
+            #include <sys/mman.h>
+            void *mmap(void *addr, size_t len, int prot, int flag, int fd, off_t off);
+
+            返回值:
+                成功,返回映射区的起始地址
+                出错,返回MAP_FAILED
+
+            函数说明:
+                告诉内核将一个给定的文件映射到一个存储区域中
+                addr参数用于指定映射存储区的起始地址,通常将其设置为0,这表示由系统选择该映射区的起始地址,
+                此函数的返回值是该映射区的起始地址。
+                fd参数是指定要被映射文件的描述符,在文件映射到地址空间之前,必须先打开该文件。
+                len参数是映射的字节数。
+                off是要被映射字节在文件中的起始偏移量。
+                prot参数指定了映射存储区的保护要求,如下:
+                    PROT_READ   -   映射区可读
+                    PROT_WRITE  -   映射区可写
+                    PROT_EXEC   -   映射区可执行
+                    PROT_NONE   -   映射区不可访问
+                可将port参数指定为PROT_NONE,也可指定为PROT_READ、PROT_WRITE和PROT_EXEC的任意组合的按位或
+                对指定映射存储区的保护要求不能超过文件open模式访问权限
+                
+                映射存储区位于堆和栈之间
+                flag参数影响映射存储的多种属性:
+                    MAP_FIXED       -   返回值必须等于addr.
+                    MAP_SHARED      -   描述了本进程对映射区所进行的存储操作的配置
+                    MAP_PRIVATE     -   本标志说明对映射区的存储操作导致创建该映射文件的一个私有副本;
+                                        所有后来对该映射区的引用都是引用该副本
+
+                off的值和addr的值(如果指定了MAP_FIXD)通常被要求是系统虚拟存储页长度的倍数;虚拟存储页长可用带
+                参数_SC_PAGESIZE或_SC_PAGE_SIZE的sysconf函数得到
+
+            与映射区相关的信号有SIGSEGV和SIGBUS:
+            信号SIGSEGV通常用于指示进程试图访问对它不可用的存储区,如果映射存储区被mmap指定成了只读的,那么
+            进程试图将数据存入这个映射存储区时,也会产生此信号;
+            如果映射区的风某个部分在访问时已不存在,则产生SIGBUS信号
+
+            子进程能通过fork继承存储映射区(因为子进程复制父进程地址空间,而存储映射区是该地址空间的一部分),
+            但是由于同样的原因,新程序则不能通过exec继承映射存储区
+
+            #include <sys/mman.h>
+            int mprotect(void *addr, size_t len, int prot);
+
+            返回值:
+                成功,返回0
+                出错,返回-1
+
+            函数说明:
+                调用mprotect可以更改一个现有映射的权限
+                地址参数addr的值必须是系统页的整数倍
+
+            如果修改的页是通过MAP_SHARED标志映射到地址空间的,那么修改并不会立即写回到文件中;相反,何时写回脏
+            页由内核的守护进程决定,决定的依据是系统负载和用来限制在系统失败事件中的数据损失的配置参数。
+            因此,如果只修改了一页中的一个字节,当修改被写回到文件中时,整个页都会被写回
+
+            #include <sys/mman.h>
+            int msync(void *addr, size_t len, int flags);
+
+            返回值:
+                成功,返回0
+                出错,返回-1
+
+            函数说明:
+                如果共享映射中的页已修改,那么可以调用msync将该页冲洗到被映射的文件中
+                flags参数使我们对如何冲洗存储区有某种程度的控制,可以指定MS_ASYNC标志来简单的调试要写的页;
+                如果希望在返回之前等待写操作完成,则可指定MS_SYNC标志。
+                一定要指定MS_ASYNC和MS_SYNC中的一个
+                MS_INVALIDATE是一个可选标志,允许我们通知操作系统丢弃那些与底层存储器没有同步的页
+
+            #include <sys/mman.h>
+            int munmap(void *addr, size_t len);
+
+            返回值:
+                成功,返回0
+                出错,返回-1
+
+            函数说明:
+                当进程终止时,会自动解除存储映射区的映射,或者直接调用munmap函数也可以解除映射区;
+                关闭映射存储区时使用的文件描述符并不解除映射区
+
+            见Chapter_14/mmap.c
+
+            复制文件时,使用mmap\memcpy 和 read\write的区别:
+                a.  使用mmap\memcpy减少了系统时间,花费相对多的用户时间
+                b.  与mmap\memcpy相比,read\write执行了更多的系统调用,并做了更多的复制
+                    read\write将数据从内核缓冲区中复制到应用缓冲区(read),然后再把数据从应用缓冲区复制到内核
+                    缓冲区(write)。
+                    而mmap\memcpy直接把数据从映射到地址空间的一个内核缓冲区复制到另一个内核缓冲区
