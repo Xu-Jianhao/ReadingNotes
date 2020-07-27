@@ -4692,3 +4692,656 @@
                     read\write将数据从内核缓冲区中复制到应用缓冲区(read),然后再把数据从应用缓冲区复制到内核
                     缓冲区(write)。
                     而mmap\memcpy直接把数据从映射到地址空间的一个内核缓冲区复制到另一个内核缓冲区
+
+第15章、 进程间通信
+    1、 引言
+    
+        进程间通信(InterProcess Communication, IPC)
+        种类(类型):
+            半双工管道
+            FIFO
+            全双工管道
+            命名全双工管道
+            XSI消息队列
+            XSI信号量
+            XSI共享存储
+            消息队列(实时)
+            信号量
+            共享存储(实时)
+            套接字
+            STREAMS
+
+    2、 管道
+        管道是UNIX系统最古老的形式,管道有以下两种局限性:
+            1)  历史上,它们是半双工的(数据只能在一个方向流动);现在,某些系统提供全双工管道,
+                但是为了最佳的可移植性,我们决不能预先假定系统支持全双工管道
+            2)  管道只能在具有公共祖先的两个进程之间使用,通常一个管道由一个进程创建,在进程调用fork之后,
+                这个管道就能在父进程和子进程之间使用了
+
+            每当在管道中键入一个命令序列,让shell执行时,shell都会为每一条命令单独创建一个进程,然后用管道将
+            前一条命令进程的标准输出与后一条命令的标准输入相连接
+
+            管道是通过调用pipe函数创建的
+            #include <unistd.h>
+            int pipe(int fd[2]);
+
+            返回值:
+                成功,返回0
+                出错,返回-1
+
+            函数说明:
+                创建一个管道,经由参数fd返回的两个文件描述符:
+                fd[0]为读打开,fd[1]为写打开
+                fd[1]的输出是fd[0]的输入
+
+            fstat函数对管道的每一端都返回一个FIFO类型的文件描述符,可以用S_ISFIFO宏来测试管道
+
+            当管道的一端被关闭后,下列两条规则起作用:
+                1)  当读(read)一个写端已被关闭的管道时,在所有数据都被读取后,read返回0,表示文件结束。
+                2)  如果写(write)一个读端已被关闭的管道.则产生信号SIGPIPE,如果忽略该信号或者捕捉该信号并
+                    从其处理程序返回,则write返回-1,errno设置为EPIPE
+
+            在写管道(或FIFO)时,常量PIPE_BUF规定了内核的管道缓冲区大小;如果对管道调用write,而且要求写的字节数
+            小于等于PIPE_BUF,则此操作不会与其他进程对同一管道的write操作交叉进行;
+            但是,若有多个进程同时写一个管道(或FIFO),而且我们要求写入的字节数超过PIPE_BUF,那么我们所写的数据
+            可能会与其他进程所写的数据相互交叉。
+            用pathconf或fpathconf函数可以确定PIPE_BUF的值
+
+            见Chapter_15/pipe.c 父子进程使用管道通信
+
+    3、 popen 和 pclose 函数
+        
+        #include <stdio.h>
+        FILE *popen(const char *cmdstring, const char *type);   成功,返回文件指针;出错,返回NULL
+        int pclose(FILE *fp);       成功,返回cmdstring的终止状态;出错,返回-1
+
+        函数说明:
+            这两个函数实现的操作是:创建一个管道,frok一个子进程,关闭未使用的管道端,执行一个shell运行命令,
+            然后等待命令终止。
+
+            popen先执行fork,然后调用exec执行cmdstring,并且返回一个标准I/O文件指针,如果type是"r",则
+            文件指针连接到cmdstring的标准输出,如果type是"w",则文件指针连接到cmdstring的标准输入
+
+            pclose 关闭标准I/O流,等待命令终止,然后返回shell的终止状态;如果shell不能被执行,则pclose返回的终止
+            状态与shell已执行exit(127)一样
+
+            cmdstring 由 Bourne shell 以下列方式执行:
+            sh -c cmdstring
+            这表示shell将扩展cmdstring中的任何特殊字符,例如:
+            fp = popen("ls *.c", "r");
+
+        见Chapter_15/popen.c
+
+    4、 协同进程
+        UNIX系统过滤程序从标准输入读取数据,向标准输出写数据;几个过滤程序通常在shell管道中线性连接,当一个过滤
+        程序既产生某个过滤程序的输入,又读取该过滤程序的输出时,它就变成了协同进程(coprocess).
+
+        协同进程通常在shell的后台运行,其标准输入和标准输出通过管道连接到另一个程序。
+
+    5、 FIFO
+        FIFO有时被称为命名管道.未命名的管道只能在两个相关的进程之间使用,而且这两个相关的进程还要有一个共同的
+        祖先进程。
+        通过FIFO,不相关的进程也能交换数据
+
+        创建FIFO类似于创建文件
+        #include <sys/stat.h>
+        int mkfifo(const char *path, mode_t mode);
+        int mkfifoat(int fd, const char *path, mode_t mode);
+
+        返回值:
+            成功,返回0;
+            出错,返回-1
+
+        函数说明:
+            创建FIFO
+            mkfifo函数中mode参数的规格说明与open函数中的mode相同
+            mkfifoat函数与mkfifo类似,但是mkfifoat函数可以用来在fd文件描述符表示的目录相关位置创建一个FIFO
+            与其他*at函数一样,有3种情形:
+                1)  path参数指定绝对路径名,则fd参数会被忽略掉,mkfifoat 函数的行为和mkfifo类似
+                2)  path参数指定相对路径名,则fd参数是一个打开目录的有效文件描述符,路径名和目录有关
+                3)  path参数指定相对路径名,并且fd参数有一个特殊值AT_FDCWD,则路径名从当前目录开始,mkfifoat
+                    和 mkfifo类似。
+
+            当用mkfifo或者mkfifoat创建FIFO时,要用open来打开它,当open一个FIFO时,非阻塞标志(O_NONBLOCK)会产生
+            下列影响:
+                a.  在一般情况下(没有指定O_NONBLOCK),只读open要阻塞到某个其他进程为写而打开这个FIFO为止;
+                    同样,只写open要阻塞到某个进程为读而打开它为止
+                b.  如果指定了O_NONBLOCK,则只读open立即返回;但是,如果没有进程为读而打开一个FIFO,那么只写open
+                    将返回-1,并将error设置成ENXIO
+
+            类似于管道,若write一个尚无进程为读而打开的FIFO,则产生信号SIGPIPE;
+            若某个FIFO的最后一个写进程关闭了该FIFO,则将为该的读进程产生一个文件结束的标志
+
+            一个给定的FIFO有多个写进程是常见的,这就意味着,如果不希望多个进程所写的数据交叉,则必须考虑原子写操作。
+            和管道一样,常量PIPE_BUF说明了可被原子的写到FIFO的最大数据量
+
+            FIFO有以下两种用途:
+                1)  shell命令使用FIFO将数据从一条管道传送到另一条时,无需创建中间临时文件
+                2)  客户进程-服务器进程应用程序中,FIFO用作汇聚点,在客户进程和服务器进程二者之间传递数据
+
+    6、 XSI IPC
+        有3种称作XSI IPC的IPC:  消息队列、信号量以及共享存储器。
+        6.1、 标识符和键
+            每个内核中的IPC结构(消息队列、信号量或共享存储段)都用一个非负整数的标识符(identifier)加以引用。
+            例如,要向一个消息队列发送消息或者从一个消息队列取消息,只需要知道其队列标识符。
+            与文件描述符不同,IPC标识符不是小的整数;当一个IPC结构被创建,然后又被删除时,与这种结构相关的标识符
+            连续加1,直至达到一个整型数的最大正值,然后又回转到0.
+
+            标示符是IPC对象的内部名,为使多个合作进程能够在同一IPC对象上汇聚,需要提供一个外部命名方案,为此,
+            每个IPC对象都与一个键(key)相关联,将这个键作为该对象的外部名。
+
+            无论何时创建IPC结构(通过调用msgget、semget或shmget创建),都应指定一个键。这个键的数据类型是基本系统
+            数据类型key_t,通常在头文件<sys/types.h>中被定义为长整形,这个键由内核变换成标识符。
+
+            有多种方法使客户进程和服务器进程在同一IPC结构上汇聚:
+            1)  服务器进程可以指定键IPC_PRIVATE创建一个新IPC结构,将返回的标识符存放在某处(如一个文件)以便客户进程
+                取用。键IPC_PRIVATE保证服务器进程创建一个新IPC结构,这种技术的缺点是:文件系统操作需要服务器进程将
+                整形标识符写到文件中,此后客户进程又要读这个文件取得此标识符。
+                IPC_PRIVATE键也可用于父子进程关系,父进程指定IPC_PRIVATE创建创建一个新IPC结构,所返回的标识符可供
+                fork后的子进程使用,接着,子进程又可将此标识符作为exec函数的一个参数传给一个新程序。
+
+            2)  可以在一个公共头文件中定义一个客户进程和服务器进程都认可的键,然后服务器进程指定此键创建一个新的
+                IPC结构。这种方法的问题是该键可能已与一个IPC结构相结合,在此情况下,get函数(msgget、semget或shmget)
+                出错返回。服务器进程必须处理这一错误,删除已存在的IPC结构,然后试着再创建它。
+
+            3)  客户进程和服务器进程认同一个路径名和项目ID(项目ID是0～255之间的字符值),接着调用函数ftok将这两个
+                值变换为一个键。然后在方法2)中使用此键
+
+            #include <sys/ipc.h>
+            key_t ftok(const char *path, int id);   成功,返回键;出错,返回(key_t)-1
+
+            函数说明:
+                ftok提供的唯一服务就是由一个路径名和项目ID产生一个键。
+                path参数必须引用一个现有的文件,当产生键时,只使用id参数的低8位。
+                ftok创建的键通常是用下列方式构成的:按给定的路径名取得其stat结构中的部分st_dev和st_ino字段,然后再
+                将它们与项目ID组合起来。
+
+            3个get函数(msgget、semget和shmget)都有两个类似的参数: 一个key和一个整型flag。在创建新的IPC结构(通常
+            由服务器进程创建)时,如果key是IPC_PRIVATE或者当前某种类型的IPC结构无关,则需要指明flag的IPC_CREAT标志位
+            为了引用一个现有队列(通常由客户进程创建),key必须等于队列创建时指定的key的值,并且IPC_CREAT必须不被指明
+
+            注意,不能指定IPC_PRIVATE作为键来引用一个现有队列,因为这个特殊的键值总是用于创建一个新队列。
+
+            如果希望创建一个新的IPC结构,而且要确保没有引用具有同一标识符的一个现有IPD结构,那么必须在flag中同时
+            指定IPC_CREAT 和 IPC_EXCL位。这样做了以后,如果IPC结构已经存在就会造成出错,返回EEXIST。
+
+        6.2、 权限结构
+            XSI IPC为每一个IPC结构关联了一个ipc_perm结构,该结构规定了权限和所有者,它至少包括下列成员:
+                struct ipc_perm {
+                    uid_t   uid;        /* owner's effective user id */
+                    gid_t   gid;        /* owner's effective group id */
+                    uid_t   cuid;       /* creator's effective user id */
+                    gid_t   cgid;       /* creator's effective group id */
+                    mode_t  mode;       /* access modes */
+                    .
+                    .
+                    .
+                };
+            在创建IPC结构时,对所有字段都赋初值,以后可以调用msgctl、semctl 或 shmctl修改uid、gid和mode字段。
+            为了修改这些值,调用进程必须是IPC结构的创建者或超级用户。修改这些字段类似于对文件调用chown和chmod
+
+            消息队列和共享存储使用术语"读"和"写",而信号量则用术语"读"和"更改"
+
+        6.3、 结构限制
+            所以3种形式的XSI IPC都有内置限制,大多数限制可以通过重新配置内核来改变。
+            Linux\MacOS X\FreeBS  提供了sysctl命令来观察和修改内核配置参数;
+            Linux中,可以运行ipcs -l 来显示IPC相关的限制
+
+        6.4、 优点和缺点
+            XSI IPC的一个基本问题是: IPC结构是在系统范围内起作用的,没有引用计数。例如,如果进程创建了一个消息队列,
+            并且在该队列中放入了几则消息,然后进程终止,那么该消息队列及其内容不会被删除,它们会一直留在系统中直至
+            发生下列动作为止:
+                a.  由某个进程调用msgrcv或msgctl读消息或删除消息队列
+                b.  或某个进程执行ipcrm(1)命令删除消息队列
+                c.  或正在自举的系统删除消息队列
+            将此与管道相比,当最后一个引用管道的进程终止时,管道就被完全的删除了
+            对于FIFO而言,在最后一个引用FIFO的进程终止时,虽然FIFO的名字仍保留在系统中,直至被显式删除,但是留在FIFO
+            中的数据已经被删除了。
+
+            XSI IPC的另一个问题时: 这些IPC结构在文件系统中没有名字,使用这些IPC对象,内核中增加了十几个全新的系统
+            调用(msgget、semop、shmat等)
+            ipcs    -   查看IPC对象
+            ipcrm   -   删除IPC对象
+
+            因为这些形式的IPC不使用文件描述符,所以不能对它们使用多路转接I/O函数
+
+            优点:
+                可靠、流控制(如果系统资源短缺,发送进程会休眠等待)、面向记录
+
+    7、 消息队列
+        消息队列是消息的链接表,存储在内核中,由消息队列标识符标识
+        
+        msgget用于创建一个新队列或打开一个现有队列,msgsnd将新消息添加到队列尾端,每个消息包含一个正的长整型
+        类型的字段、一个非负的消息长度和实际数据字节数;所以这些都在将消息添加到队列时,传递给msgsnd。
+        msgrcv用于从队列中取消息,并不一定要以先进先出次序取消息,也可以按消息的类型字段取消息
+        每个队列都有一个msqid_ds结构与其向关联:
+            struct msqid_ds {
+                struct ipc_perm     msg_perm;
+                msgqnum_t           msg_qnum;       /* # of messages on queue */
+                msglen_t            msg_qbytes;     /* max # of bytes on queue */
+                pid_t               msg_lspid;      /* pid of last msgend() */
+                pid_t               msg_lrpid;      /* pid of last msgrcv() */
+                time_t              msg_stime;      /* last-msgsnd() time */
+                time_t              msg_rtime;      /* last-msgrcv() time */
+                time_t              msg_ctime;      /* last-change time */
+                ...
+            };
+        此结构定义了队列的当前状态
+
+        #include <sys/msg.h>
+        int msgget(key_t key, int flag);
+
+        返回值:
+            成功,返回消息队列ID
+            出错,返回-1
+
+        函数说明:
+            创建一个新的队列或打开一个现有队列
+            创建新队列时,要初始化msqid_ds结构的下列成员:
+                ipc_perm    -   该结构中的mode成员按flag中的相应权限位设置
+                msg_qnum、msg_lspid、msg_lrpid、msg_stime和msg_rtime都设置为0
+                msg_ctime   -   设置为当前时间
+                msg_qbytes  -   设置为系统限制值
+
+        msgctl函数对队列执行多种操作,它和另外两个与信号量及共享存储有关的函数(semctl 和 shmctl)都是XSI IPC的
+        类似于ioctl的函数(亦即垃圾桶函数)
+        #include <sys/msg.h>
+        int msgctl(int msqid, int cmd, struct msqid_ds *buf);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            cmd参数指定对msqid指定的队列要执行的命令:
+                IPC_STAT    -   取此队列的msqid_ds结构,并将它存放在buf指向的结构中
+                IPC_SET     -   将字段msg_perm.uid、msg_perm.gid、msg_perm.mode和msg_qbytes从buf指向的结构
+                                复制到与这个队列相关的msqid_ds结构中;此命令只能由下列两种进程执行:一种是其
+                                有效用户ID等于msg_perm.cuid 或 msg_perm.uid;另一种是具有超级用户权限的进程,
+                                且只有超级用户才能增加msg_qbytes的值
+                IPC_RMID    -   从系统中删除该消息队列以及仍在该队列中的所有数据。这种删除立即生效,仍在使用
+                                这一消息队列的其他进程在它们下一次试图对此队列进行操作时,将得到EIDRM错误。
+
+            这3条命令(IPC_STAT、IPC_SET、IPC_RMID)也可用于信号量和共享存储。
+
+        调用msgsnd将数据放到消息队列中
+        #include <sys/msg.h>
+        int msgsnd(int msqid, const void *ptr, size_t nbytes, int flag);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            每个消息都由3部分组成: 一个正的长整型类型字段、一个void *指针、数据字节数、flag
+            ptr参数指向一个长整型数,它包含了正的整型消息类型,其后紧接着的是消息数据(若nbytes是0,则无消息数据)
+            若发送的最长消息是512字节,则可定义:
+            struct mymesg {
+                long mtype;
+                char mtext[512];
+            };
+            参数flag的值可以指定为IPC_NOWAIT,这类似于文件I/O的非阻塞I/O标志,若消息队列已满(或者是队列中的消息
+            总数等于系统限制值,或队列中的字节总数等于系统限制值),则指定IPC_NOWAIT使得msgsnd立即出错返回EAGAIN。
+            如果没有指定IPC_NOWAIT,则进程会一直阻塞到:队列中有空间容纳要发送的消息、或从系统中删除了此队列、或
+            捕捉到一个信号,并从信号处理程序中返回
+
+            当msgsnd返回成功时,消息队列相关的msqid_ds结构会随之更新,表明调用的进程ID(msg_lspid)、调用的时间(
+            msg_stime)、队列中新增的消息(msg_qnum)
+
+            msgrcv从队列中取消息
+            #include <sys/msg.h>
+            ssize_t msgrcv(int msqid, void *ptr, size_t nbytes, long type, int flag);
+
+            返回值:
+                成功,返回消息数据部分的长度
+                出错,返回-1
+
+            函数说明:
+                ptr参数指向一个长整型(其中存储的是返回的消息类型,其后跟随的是存储实际消息数据的缓冲区)
+                nbytes指定数据缓冲区的长度
+                若返回的消息长度大于nbytes,而且在flag中设置了MSG_NOERROR位,则该消息会被截断,被截断的部分丢弃;
+                若没有设置这一标志,而消息又太长,则出错返回E2BIG(消息仍留在队列中);
+
+                参数type可以指定想要哪一种消息:
+                    type == 0   返回队列中的第一个消息
+                    type >  0   返回队列中消息类型为type的第一个消息
+                    type <  0   返回队列中消息类型值小于等于type绝对值的消息,如果这种消息有若干个,则取
+                                类型值最小的消息
+                type值非0用于以非先进先出次序读消息,若应用程序对消息赋予优先权,那么type就可以是优先权值。
+                如果一个消息队列由多个客户进程和一个服务器进程使用,那么type字段可以用来包含客户进程的进程ID
+
+                可以将flag值指定为IPC_NOWAIT,使操作不阻塞,这样如果没有所指定类型的消息可用,则msgrcv返回-1,
+                error设置为ENOMSG;
+                如果没有指定IPC_NOWAIT,则进程会一直阻塞到有了指定类型的消息可用,或者从系统中删除了此队列(返回
+                -1,errno设置为EIDRM),或者捕捉到一个信号并从信号处理程序中返回(这回导致msgrcv返回-1,errno设置
+                为EINTR)
+
+            msgrcv成功执行时,内核会更新与该消息队列相关联的msgid_ds结构,以指示调用者的进程ID(msg_lrpid)和调用
+            时间(msg_rtime),并指示队列中的消息数减少一个(msg_qnum).
+
+        8、 信号量
+            信号量管道、FIFO以及消息队列不同,它是一个计数器,用于为多个进程提供对共享数据对象的访问。
+            为了获得共享资源,进程需要执行下列操作:
+                1)  测试控制该资源的信号量
+                2)  若此信号量的值为正,则进程可以使用该资源,在这种情况下,进程会将信号量值减1,表示它使用了一个资源单位
+                3)  否则,若此信号量的值为0,则进程进入休眠状态,直至信号量值大于0,进程被唤醒后,返回至步骤1
+
+            当进程不再使用由一个信号量控制的共享资源时,该信号量值增1,如果有进程正在休眠等待此信号量,则唤醒它们。
+            为了正确的实现信号量,信号量的测试及减1操作应当是原子操作,为此,信号量通常是在内核中实现的
+
+            常用的信号量形式被称为二元信号量(binary semaphore).它控制单个资源,其初始值为1。但是一般而言,信号量的初
+            值可以是任意一个正值,该值表明有多少个共享资源单位可供共享应用
+
+            信号量的3个特性:
+                a.  信号量并非是单个非负值,而必须定义为含有一个或多个信号量值的集合,当创建信号量时,要指定集合中信号
+                    量值的数量。
+                b.  信号量的创建(semget)是独立于它的初始化(semctl)的,这是一个致命的缺点,因为不能原子的创建一个信号量
+                    集合,并且对该集合中的各个信号量值赋初值
+                c.  即使没有进程正在使用各种形式的XSI IPC,它们仍然是存在的。有的程序终止时并没有释放已经分配给它的
+                    信号量,所以我们不得不为这种程序担心,undo处理这种情况。
+
+            内核为每个信号量集合维护着一个semid_ds结构:
+                struct semid_ds {
+                    struct ipc_perm     sem_perm;
+                    unsigned short      sem_nsems;      /* # of semaphores in set */
+                    time_t              sem_otime;      /* last-semop() time */
+                    time_t              sem_ctime;      /* last-change time */
+                    ...
+                };
+            每个信号量由一个无名结构表示,它至少包含下列成员:
+                struct {
+                    unsigned short  semval;     /* semaphore value, always >= 0 */ 
+                    pid_t           sempid;     /* pid for last operation */
+                    unsigned short  semncnt;    /* processes awaiting semval > curval */
+                    unsigned short  semzcnt;    /* processes awaiting semval == 0 */
+                };
+
+        当要使用XSI信号量时,首先需要调用函数semget来获得一个信号量ID。
+        #include <sys/sem.h>
+        int semget(key_t key, int nsems, int flag);
+
+        返回值:
+            成功,返回信号量ID
+            出错,返回-1
+
+        函数说明:
+            nsems参数是该集合中的信号量数,如果是创建新集合,则必须指定nsems;如果是引用现有集合,则将nsems指定为0
+
+        semctl函数包含了多种信号量操作
+        #include <sys/sem.h>
+        int semctl(int semid, int semnum, int cmd, ... /* union semun arg */);
+
+        函数说明:
+            第4个参数是可选的,是否取决于所请求的命令,如果使用该参数,则其类型是semun,它是多个命令待定参数的联合(union):
+            union semun {
+                int                 val;        /* for SETVAL */
+                struct semid_ds     *buf;       /* for IPC_STAT and IPC_SET */
+                unsigned short      *array;     /* for GETALL and SETALL */
+            };
+
+            cmd 参数指定了下列10种命令中的一种,这些命令是运行在semid指定的信号量集合上的。其中有5种命令是针对一个特定
+            的信号量值的,它们用semnum指定该信号量集合中的一个成员,semnum值在0和nsems-1之间,包括0和nsems-1.
+                IPC_STAT    -   对此集合取semid_ds结构,并存储在由arg.buf指向的结构中
+                IPC_SET     -   按arg.buf指向的结构中的值,设置与此集合相关的结构中的sem_perm.uid、sem_perm.gid和
+                                sem_perm.mode字段。此命令只能由两种进程执行:创建进程和超级用户进程
+                IPC_RMID    -   从系统中删除该信号量集合,这种删除是立即发生的。删除时仍在使用此信号量集合的其他进程,在
+                                它们下次试图对此信号量集合进行操作时,将出错返回EIDRM
+                GETVAL      -   返回成员semnum的semval值
+                SETVAL      -   设置成员semnum的semval值,该值由arg.val指定
+                GETPID      -   返回成员semnum的sempid值
+                GETNCHT     -   返回成员semnum的semncnt值
+                GETZCNT     -   返回成员semnum的semzcnt值
+                GETALL      -   取该集合中所有的信号量值,这些值存储在arg.array指向的数组中
+                SETALL      -   将该集合中所有的信号量值设置成arg.array指向的数组中的值
+
+            对于除GETALL以外的所有GET命令,semctl函数都返回相应值,对于其他命令,若成功则返回值为0,若出错,则设置errno并
+            返回-1.
+
+        函数semop自动执行信号量集合上的操作数组
+        #include <sys/sem.h>
+        int semop(int semid, struct sembuf semoparray[], size_t nops);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            参数semoparray是一个指针,它指向一个由sembuf结构表示的信号量操作数组:
+            struct sembuf {
+                unsigned short      sem_num;    /* member # in set (0, 1, ..., nsems-1) */
+                short               sem_op;     /* operation(negative, 0, or pasitive) */
+                short               sem_flg;    /* IPC_NOWAIT , SEM_UNDO */
+            };
+
+            参数nops规定该数组中操作的数量(元素数)。
+            对集合中每个成员的操作由相应的sem_op值规定,此值可以是负值、0或正值
+                1)  最易于处理的情况是sem_op为正值,这对应于进程释放的占用的资源数。sem_op值会加到信号量的值上,如果
+                    指定了undo标志,则也从该进程的此信号量调整值中减去sem_op
+                2)  若sem_op为负值,则表示要获取由该信号量控制的资源
+
+        exit时的信号量调整
+            如果在进程终止时,它占用了经由信号量分配的资源,那么就会成为一个问题。无论何时只要为信号量操作指定了SEM_UNDO
+            标志,然后分配资源(sem_op值小于0),那么内核就会记住对于该特定信号量,分配给调用进程多少资源(sem_op的绝对值)。
+            当该进程终止时,不论自愿或者不自愿,内核都将检验该进程是否还要尚未处理的信号量调整值,如果有,则按调整值对相应
+            信号量值进行处理。
+
+            如果用带SETVAL或SETALL命令的semctl设置一个信号量的值,则在所有进程中,该信号量的调整值都将设置为0
+
+    9、 共享存储    -   最快的IPC
+        内核为每个共享存储段维护着一个结构,该结构至少要为每个共享存储段包含以下成员:
+            struct shmid_ds {
+                struct ipc_perm shm_perm;
+                size_t          shm_segsz;      /* size of segment in bytes */
+                pid_t           shm_lpid;       /* pid of last shmop() */
+                pid_t           shm_cpid;       /* pid of creator */
+                shmatt_t        shm_nattch;     /* number of current attaches */
+                time_t          shm_atime;      /* last-attach time */
+                time_t          shm_dtime;      /* last-detach time */
+                time_t          shm_ctime;      /* last-change time */
+                ...
+            };
+        shmatt_t类型定义为无符号整型,它至少与unsigned short一样大。
+
+        调用的第一个函数通常是shmget,它获得一个共享存储标识符
+        #include <sys/shm.h>
+        int shmget(key_t key, size_t size, int flag);
+
+        返回值:
+            成功,返回共享存储ID
+            出错,返回-1
+
+        函数说明:
+            参数size是该共享存储段的长度,以字节为单位。实现通常将其向上取为系统页长的整倍数。
+            若指定的size值并非系统页长的整倍数,那么最后一页的余下部分是不可用的。
+            创建新段,则必须指定size;引用现有的段,size指定为0
+
+        shmctl函数对共享存储段执行多种操作
+        #include <sys/shm.h>
+        int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            cmd参数指定下列5种命令中的一种,使其在shmid指定的段上执行
+            IPC_STAT    -   取此段的shmid_ds结构,并将它存储在由buf指向的结构中
+            IPC_SET     -   按buf指向的结构中的值设置与此共享存储段相关的shmid_ds结构中的下列3个字段:shm_perm.uid、
+                            shm_perm.gid和shm_perm.mode
+            IPC_RMID    -   从系统删除该共享存储段。因为每个共享存储段维护着一个连接计数(shmid_ds结构中的
+                            shm_nattch字段),所以除非使用该段的最后一个进程终止或与该段分离,否则不会实际上删除该存储
+                            段。不管此段是否仍在使用,该段标识符都会被立即删除,所以不能再使用shmat与该段连接
+            SHM_LOCK    -   在内存中对共享存储段加锁,此命令只能由超级用户执行
+            SHM_UNLOCK  -   解锁共享存储段,此命令只能由超级用户执行
+
+        一旦创建了一个共享存储段,进程就可调用shmat将其连接到它的地址空间中
+        #include <sys/shm.h>
+        void *shmat(int shmid, const void *addr, int flag);
+
+        返回值:
+            成功,返回指向共享存储段的指针
+            出错,返回-1
+
+        函数说明:
+            共享存储段连接到调用进程的哪个地址上与addr参数以及flag中是否指定SHM_RND位有关
+                a.  如果addr为0,则此段连接到由内核选择的第一个可用地址上
+                b.  如果addr非0,并且没有指定SHM_RND,则此段连接到addr所指定的地址上
+                c.  如果addr非0,并且指定了SHM_RND,则此段连接到(addr-(addr mod SHMLBA))所表示的地址上。
+                    SHM_RND命令的意思是"取整",SHMLBA的意思是"低边界地址倍数",它总是2的乘方,该算式是将地址向下取
+                    最近1个SHMLBA的倍数
+
+            flag指定SHM_RDONLY位,则以只读方式连接此段,否则以读写方式连接此段。
+            shmat执行成功,那么内核将使与该共享存储段相关的shmid_ds结构中的shm_nattch计数器值加1
+
+        #include <sys/shm.h>
+        int shmdt(const void *addr);
+
+        返回值:
+            若成功,返回0
+            出错,返回-1
+
+        函数说明:
+            addr参数是以前调用shmat时的返回值。如果成功,shmdt将使相关shmid_ds结构中的shm_nattch计数器值减1.
+
+        注:
+            共享存储段紧靠在栈区之下。
+
+        mmap函数可将一个文件的若干部分映射至进程地址空间,这在概念上类似于用shmat XSI IPC函数连接一个共享存储段。
+        两者之间的主要区别是,用mmap映射的存储段是与文件相关联的,而XSI共享存储段则并无这种关联。
+
+        在读设备/dev/zero时,该设备是0字节的无限资源,它也接收写向它的任何数据,但又忽略这些数据。
+        我们对此设备作为IPC的兴趣在于,当对其进行存储映射时,它具有一些特殊性质:
+            a.  创建一个未命名的存储区,其长度是mmap的第二个参数,将其向上取整为系统的最近页长。
+            b.  存储区都初始化为0
+            c.  如果多个进程的共同祖先进程对mmap指定了MAP_SHARED标志,则这些进程可共享此存储区
+
+        见Chapter_15/UseZero.c 在父子进程之间使用/dev/zero的存储映射I/O的IPC
+
+    10、 POSIX信号量
+
+        POSIX信号量接口意在解决XSI信号量接口的几个缺陷:
+            a.  相比于XSI接口,POSIX信号量接口考虑到了更高性能的实现
+            b.  POSIX信号量接口使用更简单:没有信号量集,在熟悉的文件系统调用操作后一些接口被模式化了。
+            c.  POSIX信号量在删除时表现更完美。使用POSIX信号量时,操作能继续正常工作直到该信号量的最后
+                一次引用被释放
+
+        POSIX信号量有两种形式:命名的和未命名的。它们的差异在于创建和销毁的形式上,但其他工作都一样，
+            未命名信号量只存在于内存中,并要求能使用信号量的进程必须可以访问内存,这意味着它们只能应用在同一进程的
+            线程中,或者不同进程中已经映射相同内存内容到它们的地址空间中的线程。
+            命名信号量可以通过名字访问,因此可以被任何已知它们名字的进程中的线程使用。
+
+        我们可以调用sem_open函数来创建一个新的命名信号量或者使用一个现有信号量
+        #include <semaphore.h>
+        sem_t *sem_open(const char *name, int oflag, ... /* mode_t mode, unsigned int value */);
+
+        返回值:
+            成功,返回指向信号量的指针;
+            出错,返回SEM_FAILED
+
+        函数说明:
+            当使用一个现有的命名信号量时,我们仅仅指定两个参数:信号量的名字和oflag参数的0值,当这个oflag参数
+            有O_CREAT标志集时,如果命名信号量不存在,则创建一个新的;如果已经存在,则会被使用。
+            我们指定O_CREAT标志时,需要提供两个额外参数,mode参数指定谁可以访问信号量。
+            mode的取值和打开文件的权限位相同:用户读、用户写、用户执行、组读、组写、组执行、其他读、其他写
+            和其他执行。
+            在创建信号量时,value参数用来指定信号量的初始值,它的取值是0~SEM_VALUE_MAX
+            如果我们想确保是创建信号量,可以设置oflag参数为 O_CREAT|O_EXCL,如果信号量已经存在,会导致sem_open失败
+
+        如果想在信号量上进行操作,sem_open函数会为我们返回一个信号量指针,用于传递到其他信号量函数上.当完成
+        信号量操作时,可以调用sem_close函数来释放任何信号量相关的资源。
+        #include <semaphore.h>
+        int sem_close(sem_t *sem);
+
+        返回值:
+            若成功,返回0
+            出错,返回-1
+        
+        函数说明:
+            如果进程没有首先调用sem_close而退出,那么内核将自动关闭任何打开的信号量。
+            这不会影响信号量值的状态----如果已经对它进行了增1操作,这并不会仅因为退出而改变
+
+        #include <semphore.h>
+        int sem_unlink(const char *name);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            sem_unlink 来销毁一个命名信号量
+            sem_unlink函数删除信号量的名字,如果没有打开的信号量引用,则该信号量会被销毁;否则,销毁将
+            延迟到最后一个打开的引用关闭
+
+        可以使用sem_wait或者sem_trywait函数来实现信号量的减1操作
+        #include <semaphore.h>
+        int sem_trywait(sem_t *sem);
+        int sem_wait(sem_t *sem);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            使用sem_wait函数时,如果信号量计数是0就会发生阻塞。直到成功使信号量减1或者被信号中断才会返回。
+            可以使用sem_trywait函数来避免阻塞,调用sem_trywait时,如果信号量是0,直接返回-1并且将errno设置为EAGIN
+
+        #include <semaphore.h>
+        #include <time.h>
+        int sem_timedwait(sem_t *restrict sem, const struct timespec *restrict tsptr);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            指定阻塞等待的时间
+            如果超时并且信号量计数没能减1,sem_timedwait将返回-1且将errno设置为ETIMEDOUT
+
+        可以调用sem_post函数使信号量值增1,这和解锁一个二进制信号量或者释放一个计数信号量相关的资源过程是类似的
+        #include <semaphore.h>
+        int sem_post(sem_t *sem);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            调用sem_post时,如果在调用sem_wait(或者sem_timedwait)中发生进程阻塞,那么进程会被唤醒并且被
+            sem_post增1的信号量计数会再次被sem_wait(或者sem_timedwait)减1.
+    
+        当在单个进程使用POSIX信号量时,使用未命名信号量,sem_init函数用来创建一个未命名信号量
+        #include <semaphore.h>
+        int sem_init(sem_t *sem, int pshared, unsigned int value);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            pshared参数表明是否在多个进程中使用信号量,如果是,将其设置为一个非0值
+            value参数指定了信号量的初始值
+            需要声明一个sem_t类型的变量并把地址传递给sem_init来实现初始化
+
+            如果要在两个进程之间使用信号量,需要确保sem参数指向两个进程之间共享的内存范围
+
+        对未命名信号量的使用已经完成时,可以调用sem_destroy函数丢弃它
+        #include <semaphore.h>
+        int sem_destroy(sem_t *sem);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        sem_getvalue函数可以用来检索信号量值
+        #include <semaphore.h>
+        int sem_getvalue(sem_t *restrict sem, int *restrict valp);
+
+        返回值:
+            若成功,返回0
+            出错,返回-1
+
+        函数说明:
+            成功后,valp指向的整数值将包含信号量值。但是,可能使用该值时,信号量的值已经改变了。
+            用来调试。
+
+    11、 客户进程-服务器进程属性
