@@ -12,7 +12,7 @@
 #include <fcntl.h>
 #include <sys/resource.h>
 
-void daemonize(const char *cmd)
+void create_daemonize(const char *cmd)
 {
     int                 i, fd0, fd1, fd2;
     pid_t               pid;
@@ -22,7 +22,7 @@ void daemonize(const char *cmd)
     /* Clear file creation mask. */
     umask(0);
 
-    /* Get maximum number of dile descriptors. */
+    /* Get maximum number of file descriptors. */
     if(getrlimit(RLIMIT_NOFILE, &r1) < 0)
         err_quit("%s: can't get file limit", cmd);
 
@@ -72,7 +72,7 @@ void daemonize(const char *cmd)
 
 int main(void)
 {
-    daemonize("sleep 100");
+    create_daemonize("sleep 100");
     sleep(60);
     exit(0);
 }

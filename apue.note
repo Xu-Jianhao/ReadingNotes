@@ -5345,3 +5345,646 @@
             用来调试。
 
     11、 客户进程-服务器进程属性
+
+第16章、 网络IPC: 套接字
+    1、 套接字描述符
+        套接字描述符在UNIX系统中被当作是一种文件描述符
+        创建套接字,调用socket函数
+        #include <sys/socket.h>
+        int socket(int domain, int type, int protocol);
+
+        返回值:
+            成功,返回文件描述符(套接字)
+            出错,返回-1
+
+        函数说明:
+            参数domain(域)确定通信的特性,包括地址格式。取值如下:
+                AF_INET     -   IPv4因特网域
+                AF_INET6    -   IPv6因特网域
+                AF_UNIX     -   UNIX域
+                AF_UPSPEC   -   未指定
+            各个域都有自己表示地址的格式,而表示各个域的常数都是以AF_开头,意指地址族(address family).
+
+            参数type确定套接字的类型,进一步确定通信特征。取值如下:
+                SOCK_DGRAM      -   固定长度的、无连接的、不可靠的报文传递
+                SOCK_RAW        -   IP协议的数据报接口
+                SOCK_SEQPACKET  -   固定长度的、有序的、可靠的、面向连接的报文传递
+                SOCK_STREAM     -   有序的、可靠的、双向的、面向连接的字节流
+
+            参数protocol通常是0,表示为给定的域和套接字类型选择默认协议。当对同一域和套接字类型支持多个协议时,
+            可以使用protocol选择一个特定协议.
+            在AF_INET通信域中,套接字类型SOCK_STREAM的默认协议是传输控制协议(Transmission Control Protocol, TCP).
+            在AF_INET通信域中,套接字类型SOCK_DGRAM默认协议是UDP
+            protocol的取值如下:
+                IPPROTO_IP      -   IPv4网际协议
+                IPPROTO_IPV6    -   IPv6网际协议
+                IPPROTO_ICMP    -   因特网控制报文协议(Internet Control Message Protocol)
+                IPPROTO_RAW     -   原始IP数据包协议
+                IPPROTO_TCP     -   传输控制协议
+                IPPROTO_UDP     -   用户数据报协议(User Datagram Protocol)
+
+        数据报(SOCK_DGRAM)接口,两个对等进程之间通信时不需要逻辑连接,只需要向对等进程所使用的套接字送出一个报文
+        SOCK_STREAM套接字提供字节流服务,应用程序需要通过多次调用才能得到完整数据
+        SOCK_SEQPACKET套接字和SOCK_STREAM套接字很类似,只是从该套接字得到的是基于报文的服务而不是字节流
+        SOCK_RAM套接字提供一个数据报接口,用于直接访问下面的网络层(即因特网域中的IP层),使用这个接口时,应用程序
+            负责构造自己的协议头部,这是因为传输协议(TCP/UDP)被绕过了。当创建一个原始套接字时,需要有超级用户特权,
+            这样可以防止恶意应用程序绕过安全机制来创建报文。
+
+        套接字通信是双向的。可以采用shutdown函数来禁止一个套接字的I/O
+        #include <sys/socket.h>
+        int shutdown(int sockfd, int how);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            如果how是SHUT_RD(关闭读端),那么无法从套接字读取数据;如果how是SHUT_WR(关闭写端),那么无法使用套接字
+            发送数据。
+            如果how是SHUT_RDWR,则既无法读也无法写。
+
+            使用shutdown而不使用close的理由:
+                只有最后一个活动引用关闭时,close才释放网络端点,这意味着如果复制一个套接字(如采用dup),要直到
+                关闭了最后一个引用它的文件描述符才会释放这个套接字。
+                而shutdown允许使一个套接字处于不活动状态,和引用它的文件描述符数目无关。
+                其次,可以很方便的关闭套接字双向传输中的一个方向。
+
+    2、 寻址
+        2.1、 字节序
+            
+            字节序是一个处理器架构特性,用于指示像整数这样的大数据类型内部的字节如何排序.
+            网络协议指定了字节序,因此异构计算机系统能够交换协议信息而不会被字节序所混淆;
+            TCP/IP协议栈使用大端字节序。
+            
+            对于TCP/IP应用程序,有4个用来在处理器字节序和网络字节序之间实施转换的函数。
+            #include <arpa/inet.h>
+            uint32_t htonl(uint32_t hostint32);
+                        返回值: 以网络字节序表示的32位整数
+            uint16_t htons(uint16_t hostint16);
+                        返回值: 以网络字节序表示的16位整数
+            uint32_t ntohl(uint32_t netint32);
+                        返回值: 以主机字节序表示的32位整数
+            uint16_t ntohs(uint16_t netint16);
+                        返回值: 以主机字节序表示的16位整数
+
+            函数说明:
+                h表示"主机"字节序,n表示"网络"字节序。
+                l表示"长"整数,即4字节;s表示"短"整数,即2字节整数。
+
+        2.2、 地址格式
+            一个地址标识一个特定通信域的套接字端点,地址格式与这个特定的通信域相关。为使不同格式地址能够
+            传入到套接字函数,地址会被强制转换成一个通用的地址结构sockaddr:
+                struct sockaddr {
+                    sa_family_t     sa_family;      /* address family */
+                    cahr            sa_data[];      /* variable-length address */
+                };
+            套接字实现可以自由的添加额外的成员并且定义sa_data成员的大小。
+
+            用于二进制地址格式与点分十进制格式的转换函数,同时支持IPv4地址和IPv6地址:
+            #include <arpa/inet.h>
+            const char *inet_ntop(int domain, const void *restrict addr, char *restrict str, socklen_t size);
+                    返回值: 成功,返回地址字符串指针;出错,返回NULL
+            int inet_pton(int domain, const char *restrict str, void *restrict addr);
+                    返回值: 成功,返回1;格式无效,返回0;出错,返回-1
+
+            函数说明:
+                inet_ntop   -   将网络字节序的二进制地址转换成文本字符串格式。
+                inet_pton   -   将文本字符串转换成网络字节序的二进制地址。
+
+                参数domain仅支持两个值: AF_INET 和 AF_INET6
+
+                对于inet_ntop,参数size指定了保存文本字符串的缓冲区(str)大小。
+                两个常数用于简化工作:
+                    INET_ADDRSTRLEN 定义了足够大的空间来存放一个表示IPv4地址的文本字符串
+                    INET6_ADDRSTRLEN 定义了足够大的空间来存放一个表示IPv6地址的文本字符串
+
+                对于inet_pton,如果domain是AF_INET,则缓冲区addr需要足够大的来存放一个32位地址;
+                如果domain是AF_INET6,则需要足够大的空间来存放一个128位地址
+
+        2.3、 地址查询
+            这些函数返回的网络配置信息被存放在许多地方,这个信息可以存放在静态文件(如/etc/hosts和/etc/services)中,
+            也可以由名字服务管理,如域名系统(Domain Name System, DNS)或者网络信息服务(Network Information Service,
+            NIS).
+
+            通过调用gethostent,可以找到给定计算机系统的主机信息。
+            #include <netdb.h>
+            struct hostent *gethostent(void);
+                    返回值: 成功,返回指针;出错,返回NULL
+            void sethostent(int stayopen);
+            void endhostent(void);
+
+            函数说明:
+                如果主机数据库文件没有打开,gethost会打开它。函数gethostent返回文件中的下一个条目。
+                函数sethostent会打开文件,如果文件已经被打开,那么将其回绕。
+                    当stayopen参数设置成非0值时,调用gethostent之后,文件将依然是打开的。
+                函数endhostent可以关闭文件。
+
+                当gethostent返回时,会得到一个指向hostent结构的指针,该结构可能包含一个静态的数据缓冲区,
+                每次调用gethostent,缓冲区都会被覆盖。hostent结构至少包含以下成员:
+                    struct hostent {
+                        char    *h_name;        /* name of host */
+                        char    **h_aliases;    /* pointer to alternate host name array */
+                        int     h_addrtype;     /* address type */
+                        char    **h_addr_list;  /* pointer to array of network addresses */
+                        ...
+                    };
+                返回的地址采用网络字节序。
+
+            用来获得网络名字和网络编号的函数
+            #include <netdb.h>
+            struct netent *getnetbyaddr(uint32_t net, int type);
+            struct netent *getnetbyname(const char *name);
+            struct netent *getnetent(void);
+
+                    3个函数的返回值:
+                        成功,返回指针
+                        出错,返回NULL
+
+            void setnetent(int stayopen);
+            void endnetent(void);
+
+            函数说明:
+                netent结构至少包含以下字段:
+                    struct netent {
+                        char        *n_name;        /* network name */
+                        char        **n_aliases;    /* alternate network name array pointer */
+                        int         n_addrtype;     /* address type */
+                        uint32_t    n_net;          /* network number */
+                        ...
+                    };
+                网络编号按照网络字节序返回,地址类型是地址族常亮之一(如AF_INET).
+
+            我们可以用以下函数在协议名字和协议编号之间进行映射。
+            #include <netdb.h>
+            struct protoent *getprotobyname(const char *name);
+            struct protoent *getprotobynumber(int proto);
+            struct protoent *getprotoent(void);
+                        3个函数返回值:  成功,返回指针;  出错,返回NULL。
+
+            void setprotoent(int stayopen);
+            void endprotoent(void);
+
+            函数说明:
+                POSIX.1 定义的protoent结构至少包含以下成员:
+                    struct protoent {
+                        char    *p_name;        /* protocol name */
+                        char    **p_aliases;    /* pointer to altername protocol name array */
+                        int     p_proto;        /* protocol number */
+                        ...
+                    };
+
+            服务是由地址的端口号部分表示的,每个服务由一个唯一的众所周知的端口号来支持。
+            可以使用函数getservbyname将一个服务名映射到一个端口号,使用函数getservbyport将一个端口号映射到
+            一个服务名,使用函数getservent顺序扫描服务数据库。
+            #include <netdb.h>
+            struct servent *getservbyname(const char *name, const char *proto);
+            struct servent *getservnyport(int port, const char *proto);
+            struct servent *getservent(void);
+                    3个函数返回值: 成功,返回指针; 出错,返回NULL
+            void setservent(int stayopen);
+            void endservent(void);
+
+            函数说明:
+                servent结构至少包含以下成员:
+                    struct servent {
+                        char    *s_name;        /* service name */
+                        char    **s_aliases;    /* pointer to alternate service name array */
+                        int     s_port;         /* port number */
+                        char    *s_proto;       /* name of protocol */
+                        ...
+                    };
+
+            POSIX.1定义了若干新的函数,允许一个应用程序将一个主机名和一个服务名映射到一个地址,或者反之。
+            这些函数代替了较老的函数gethostbyname 和 gethostbyaddr.
+
+            #include <sys/socket.h>
+            int getaddrinfo(const char *restrict host, const char *restrict service,
+                            const struct addrinfo *restrict hint, struct addrinfo **restrict res);
+                        返回值: 成功,返回0; 出错,返回非0错误码。
+            void freeaddrinfo(struct addrinfo *ai);
+
+            函数说明:
+                getaddrinfo -   允许将一个主机名和一个服务名映射到一个地址
+                需要提供主机名、服务名,或者两者都提供。如果仅仅提供一个名字,另外一个必须是一个空指针。
+                主机名可以是一个节点名或点分十进制格式的主机地址。
+
+                getaddrinfo函数返回一个链表结构addrinfo.可以用freeaddrinfo来释放一个或多个这种结构,这
+                取决于用ai_next字段链接起来的结构有多少。
+                addrinfo 结构的定义至少包含以下成员:
+                struct addrinfo {
+                    int             ai_flags;       /* customize behavior */
+                    int             ai_family;      /* address family */
+                    int             ai_socktype;    /* socket type */
+                    int             ai_protocol;    /* protocol */
+                    socklen_t       ai_addrlen;     /* length in bytes of address */
+                    struct sockaddr *ai_addr;       /* address */
+                    char            *ai_canonname;  /* canonical name of host */
+                    struct addrinfo *ai_next;       /* next in list */
+                    ...
+                };
+
+                可以提供一个可选的hint来选择符合特定条件的地址,hint是一个用于过滤地址的模版,包括ai_family、
+                ai_flags、ai_protocol 和 ai_socktype字段。剩余的整数字段必须设置为0,指针字段必须为空。
+
+                ai_flags字段中的标志,可以用这些标志来自定义如何处理地址和名字:
+                    AI_ADDRCONFIG   -   查询配置的地址类型(IPv4 或 IPv6)
+                    AI_ALL          -   查找IPv4 和 IPv6地址(仅用于AI_V4MAPPED)
+                    AI_CANONNAME    -   需要一个规范的名字(与别名相对)
+                    AI_NUMERICHOST  -   以数字格式指定主机地址,不翻译
+                    AI_NUMERICSERV  -   将服务指定为数字端口号,不翻译
+                    AI_PASSIVE      -   套接字地址用于监听绑定
+                    AI_V4MAPPED     -   如果没有找到IPv6地址,返回映射到IPv6格式的IPv4地址
+
+            如果getaddrinfo失败,不能使用perror或strerror来生成错误消息,而是要调用gai_strerror将返回的错误码
+            转换成错误消息
+            #include <netdb.h>
+            const char *gai_strerror(int error);
+
+            返回值:
+                指向描述错误的字符串的指针
+
+            getnameinfo函数将一个地址转换成一个主机名和一个服务名
+            #include <sys/socket.h>
+            #include <netdb.h>
+            int getnameinfo(const struct sockaddr *restrict addr, socklen_t alen,
+                            char *restrict host, socklen_t hostlen,
+                            char *restrict service, socklen_t servlen, int flags);
+
+            返回值:
+                成功,返回0
+                出错,返回非0值
+
+            函数说明:
+                套接字地址(addr)被翻译成一个主机名和一个服务名。
+                如果host非空,则指向一个长度为hostlen字节的缓冲区用于存放返回的主机名。
+                同样,如果service非空,则指向一个长度为servlen字节的缓冲区用于存放返回的主机名。
+
+                flags参数提供了一些控制翻译的方式。
+                    NI_DGRAM        -   服务基于数据报而非基于流
+                    NI_NAMEREQD     -   如果找不到主机名,将其作为一个错误对待
+                    NI_NOFQDN       -   对于本地主机,仅返回全限定域名的节点名部分
+                    NI_NUMERICHOST  -   返回主机地址的数字形式,而非主机名
+                    NI_NUMERICSCOPE -   对于IPv6,返回范围ID的数字形式,而非名字
+                    NI_NUMERICSERV  -   返回服务地址的数字形式(即端口号),而非名字
+
+            见Chapter_16/getAddrInfo.c  示例getaddrinfo函数的使用方法
+
+        2.4、 将套接字与地址关联
+            对于服务器,需要给一个接收客户端请求的服务器套接字关联上一个众所周知的地址。
+
+            使用bind函数来关联地址和套接字
+            #include <sys/socket.h>
+            int bind(int sockfd, const struct sockaddr *addr, socklen_t len);
+
+            返回值:
+                成功,返回0
+                出错,返回-1
+
+            函数说明:
+                对于使用的地址有以下限制:
+                    1)  在进程正在运行的计算机上,指定的地址必须有效;不能指定一个其他机器的地址
+                    2)  地址必须和创建套接字时的地址族所支持的格式相匹配
+                    3)  地址中的端口号必须不小于1024,除非该进程具有相应的特权(即超级用户)
+                    4)  一般只能将一个套接字端点绑定到一个给定地址上,尽管有些协议允许多重绑定
+
+                对于因特网域,如果指定IP地址为INADDR_ANY(<netinet/in.h>中定义的),套接字端点可以被绑定到所有的
+                系统网络接口上。这就意味着可以接收这个系统所安装的任何一个网卡的数据包
+
+            可以调用getsockname函数来发现绑定到套接字上的地址:
+            #include <sys/socket.h>
+            int getsockname(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict alenp);
+
+            返回值:
+                成功,返回0
+                出错,返回-1
+
+            函数说明:
+                调用getsockname之前,将alenp设置为一个指向整数的指针,该整数指定缓冲区addr的长度。
+                返回时,该整数会被设置成返回地址的大小。
+                如果地址和提供的缓冲区长度不匹配,地址会被自动截断而不报错。
+                如果当前没有地址绑定到该套接字,则其结果是未定义的。
+
+            如果套接字已经和对方连接,可以调用getpeername函数来找到对方的地址。
+            #include <sys/scoket.h>
+            int getpeername(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict alenp);
+
+            返回值:
+                成功,返回0
+                出错,返回-1
+
+            函数说明:
+                除了返回对方的地址之外,函数getpeername 和 getsockname一样。
+
+    3、 建立连接
+        如果要处理一个面向连接的网络服务(SOCK_STREAM 或 SOCK_SEQPACKET),那么在开始交换数据以前,需要在请求服务
+        的进程套接字(客户端)和提供服务的进程套接字(服务器)之间建立一个连接。使用connect函数来建立连接
+        #include <sys/socket.h>
+        int connect(int sockfd, const struct sockaddr *addr, socklen_t len);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            在connect中指定的地址是我们想与之通信的服务器地址。
+            如果sockfd没有绑定到一个地址,connect会给调用者绑定一个默认地址。
+
+        如果套接字描述符处于非阻塞模式,那么在连接不能马上建立时,connect将会返回-1并且将errno设置为特殊的错误码
+        EINPROGRESS。应用程序可以使用poll或者select来判断文件描述符何时可写,如果可写,连接完成。
+
+        connect函数还可以用于无连接的网络服务(SOCK_DGRAM),如果用SOCK_DGRAM套接字调用connect,传送的报文的目标地址
+        会设置成connect调用中所指定的地址,这样每次传送报文时就不需要再提供地址。另外,仅能接收来自指定地址的报文。
+
+        服务器调用listen函数来宣告它愿意接受连接请求
+        #include <sys/socket.h>
+        int listen(int sockfd, int backlog);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            参数backlog提供了一个提示,提示系统该进程所要入队的未完成连接请求数量。其实际值由系统决定,但上限由
+            <sys/socket.h>中的SOMAXCONN指定。
+
+            一旦队列满了,系统就会拒绝多余的连接请求,所以backlog的值应该基于服务器期望负载和处理量来选择,其中处理量
+            是指接受连接请求与启动服务的数量。
+
+        一旦服务器调用了listen,所用的套接字就能就收连接请求。使用accept函数来获得连接请求并建立连接。
+        #include <sys/socket.h>
+        int accept(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict len);
+
+        返回值:
+            成功,返回文件(套接字)描述符;
+            出错,返回-1。
+
+        函数说明:
+            函数accept所返回的文件描述符是套接字描述符,该描述符连接到调用connect的客户端。
+            这个新的套接字描述符和原始套接字(sockfd)具有相同的套接字类型和地址族。
+            传给accept的原始套接字(sockfd)没有关联到这个连接,而是继续保持可用状态并接收其他连接请求。
+
+            如果不关心客户端标识,可以将参数addr和len设置为NULL。否则accept会填充addr客户端地址信息
+
+            如果没有连接请求在等待,accept会阻塞直到一个请求到来。如果sockfd处于非阻塞模式,accept会返回-1,
+            并将errno设置为EAGAIN 或 EWOULDBLOCK.
+
+            服务器可以使用poll或select来等待一个请求的到来,在这种情况下,一个带有等待连接请求的套接字会以可读的
+            方式出现。
+
+            见Chapter_16/initSer.c  分配和初始化套接字供服务器进程使用
+    
+    4、 数据传输
+        一个套接字端点表示为一个文件描述符,那么只要建立连接,就可以使用read和write来通过套接字通信。
+        如果想指定选项,从多个客户端接收数据报,或者发送带外数据,就需要使用6个为数据传递而设计的套接字函数中的一个。
+        3个函数用来发送数据,3个函数用于接收数据。
+
+        #include <sys/socket.h>
+        ssize_t send(int sockfd, const void *buf, size_t nbytes, int flags);
+
+        返回值:
+            成功,返回发送的字节数
+            出错,返回-1
+
+        函数说明:
+            类似write,使用send时套接字必须已经连接。
+            参数buf 和 nbytes的含义与write中的一致。
+
+            参数flags,Linux所支持的标志如下:
+                MSG_CONFIRM     -   提供链路层反馈以保持地址映射有效
+                MSG_DONTROUTE   -   勿将数据包路由出本地网络
+                MSG_DONTWAIT    -   允许非阻塞操作(等价于使用O_NONBLOCK)
+                MSG_EOR         -   如果协议支持,标记记录结束
+                MSG_MORE        -   延迟发送数据报允许写更多数据
+                MSG_NOSIGNAL    -   在写无连接的套接字时不产生SIGPIPE信号
+                MSG_OOB         -   如果协议支持,发送带外数据
+
+            即使send成功返回,也不表示连接另一端的进程就一定接受了数据,我们能保证的只是当send成功返回时,数据
+            已经被无错误的发送到了网络驱动程序上。
+
+            对于支持报文边界的协议,如果尝试发送的单个报文的长度超过协议所支持的最大长度,那么send会失败,并将
+            errno设为EMSGSIZE.
+            对于字节流协议,send会阻塞直到整个数据传输完成。
+            
+        函数sendto和send很类似,区别在于sendto可以在无连接的套接字上指定一个目标地址。
+        #include <sys/socket.h>
+        ssize_t sendto(int sockfd, const void *buf, size_t nbytes, int flags, 
+                        const struct sockaddr *destaddr, socklen_t destlen);
+
+        返回值:
+            成功,返回发送的字节数
+            出错,返回-1
+
+        函数说明:
+            对于面向连接的套接字,目标地址是被忽略的,因为连接中隐含了目标地址。
+            对于无连接的套接字,除非先调用connect设置了目标地址,否则不能使用send。
+            sendto提供了发送报文的另一种方式。
+
+        通过套接字发送数据时,还有另一种选择。可以调用带有msghdr结构的sendmsg来指定多重缓冲区传输数据,
+        这和writev函数很类似
+        #include <sys/socket.h>
+        ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags);
+
+        返回值:
+            成功,返回发送的字节数
+            出错,返回-1
+
+        函数说明:
+            POSIX.1 定义了msghdr结构,它至少有以下成员:
+                struct msghdr {
+                    void            *msg_name;      /* optional address */ 
+                    socklen_t       msg_namelen;    /* address size in bytes */
+                    struct iovec    *msg_iov;       /* array of I/O buffers */
+                    int             msg_iovlen;     /* number of elements in array */
+                    void            *msg_control;   /* ancillary data  */
+                    socklen_t       msg_controllen; /* number of ancillary bytes */
+                    int             msg_flags;      /* flags for received message */
+                    ...
+                };
+
+        函数recv和read相似,但是recv可以指定标志来控制如何接收数据
+        #include <sys/socket.h>
+        ssize_t recv(int sockfd, void *buf, size_t nbytes, int flags);
+
+        返回值:
+            返回数据的字节长度:若无可用数据或对方已经按序结束,返回0
+            出错,返回-1
+
+        函数说明:
+            参数flags在Linux上可用的值:
+                MSG_CMSG_CLOEXEC    -   为UNIX域套接字上接收的文件描述符设置执行时关闭标志
+                MSG_DONTWAIT        -   启用非阻塞操作(相当于使用O_NONBLOCK)
+                MSG_ERRQUEUE        -   接收错误信息作为辅助数据
+                MSG_OOB             -   如果协议支持,获取带外数据
+                MSG_PEEK            -   返回数据包内容而不真正取走数据包
+                MSG_TRUNC           -   即使数据包被截断,也返回数据包的实际长度
+                MSG_WAITALL         -   等待直到所有的数据可用(仅SOCK_STREAM)
+
+            当指定MSG_PEEK标志时,可以查看下一个要读取的数据但不真正取走它,当再次调用read或其中一个recv函数时,
+            会返回刚才查看的数据。
+
+            对于SOCK_STREAM套接字,接收的数据可以比预期的少,MSG_WAITALL标志会阻止这种行为,知道所请求的数据全部返回,
+            recv函数才会返回。
+            对于SOCK_DGRAM 和 SOCK_SEQPACKET套接字,MSG_WAITALL标志没有改变什么行为,因为这些基于报文的套接字一次读取
+            就返回整个报文。
+
+            如果发送者已经调用shutdown来结束传输,或者网络协议支持按默认的顺序关闭并且发送端已经关闭,那么当所有的
+            数据接收完毕后,recv会返回0。
+
+        如果有兴趣定位发送者,可以使用recvfrom来得到数据发送者的源地址
+        #include <sys/socket.h>
+        ssize_t recvfrom(int sockfd, void *restrict buf, size_t len, size_t len, int flags,
+                        struct sockaddr *restrict addr, socklen_t *restrict addrlen);
+
+        返回值:
+            返回数据的字节长度: 若无可用数据或对方已经按序结束,返回0
+            出错,返回-1
+
+        函数说明:
+            如果addr非空,它将包含数据发送者的套接字端点地址。
+            当调用recvfrom时,需要设置addrlen参数指向一个整数,该整数包含addr所指向的套接字缓冲区的字节长度
+            返回时,该整数设为该地址的实际字节长度。
+
+            因为可以获得发送者的地址,recvfrom通常用于无连接的套接字。否则,recvfrom等同于recv
+
+        为乐将接收到的数据送入多个缓冲区,类似于readv,或者想接收辅助数据,可以使用recvmsg
+        #include <sys/socket.h>
+        ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags);
+
+        返回值:
+            返回数据的字节长度:若无可用数据或对方已经按序结束,返回0
+            出错,返回-1
+
+        函数说明:
+            recvmsg用msghdr结构指定接收数据的输入缓冲区。
+            可以设置参数flags来改变recvmsg的默认行为。
+            返回时,msghdr结构中的msg_flags字段被设为所接受数据的各种特征。(进入recvmsg时msg_flags被忽略)
+            recvmsg中返回的各种可能值如下(Linux):
+                MSG_CTRUNC      -   控制数据被截断
+                MSG_EOR         -   接收记录结束符
+                MSG_ERRQUEUE    -   接受错误信息作为辅助数据
+                MSG_OOB         -   接受带外数据
+                MSG_TRUNC       -   一般数据被截断
+
+        见Chapter_16/ruptime_TCP_C.c  实现一个面向连接的客户端,与服务器通信的客户端从系统的uptime命令获得输出
+
+
+    5、 套接字选项
+        套接字记之提供了两个套接字选项接口来控制套接字行为。一个接口用来设置选项,另一个接口可以查询选项的状态。
+        可以获取或设置以下3种选项
+            1)  通用选项,工作在所有套接字类型上
+            2)  在套接字层次管理的选项,但是依赖于下层协议的支持
+            3)  特定于某协议的选项,每个协议独有的
+
+        可以使用setsockopt函数来设置套接字选项
+        #include <sys/socket.h>
+        int setsockopt(int sockfd, int level, int option, const void *val, socklen_t len);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            参数level标识了选项应用的协议。如果选项是通用的套接字层次选项,则level设置成SOL_SOCKET。
+            否则,level设置成控制这个选项的协议编号。
+            对于TCP选项,level是IPPROTO_TCP,
+            对于IP,level是IPPROTO_IP.
+            通用套接字层次选项如下(level选项、参数val类型、描述):
+                SO_ACCEPTCONN       int             返回信息指示该套接字是否能被监听(仅getsockopt)
+                SO_BROADCAST        int             如果*val非0,广播数据报
+                SO_DEBUG            int             如果*val非0,启用网络驱动调试功能
+                SO_DONTROUTE        int             如果*val非0,绕过通常路由
+                SO_ERROR            int             返回挂起的套接字错误并清除(仅getsockopt)
+                SO_KEEPALIVE        int             如果*val非0,启用周期性keep-alive报文
+                SO_LINGER           struct linger   当还有未发报文而套接字已关闭时,延迟时间
+                SO_OOBINLINE        int             如果*val非0,将带外数据放在普通数据中
+                SO_RCVBUF           int             接收缓冲区的字节长度
+                SO_RCVLOWAT         int             接收调用中返回的最小数据字节数
+                SO_RCVTIMEO         struct timeval  套接字接受调用的超时值
+                SO_REUSEADDR        int             如果*val非0,重用bind中的地址
+                SO_SNDBUF           int             发送缓冲区的字节长度
+                SO_SNDLOWAT         int             发送调用中传送的最小数据字节数
+                SO_SNDTIMEO         struct timeval  套接字发送调用的超时值
+                SO_TYPE             int             标识套接字类型(仅getsockopt)
+
+            参数val根据选项的不同指向一个数据结构或者一个整数。一些选项是on/off开关,如果整数非0,则
+            启用选项;如果整数为0,则禁止选项。
+            参数len指定了val指向的对象的大小
+
+        可以使用getsockopt函数来查看选项的当前值
+        #include <sys/socket.h>
+        int getsockopt(int sockfd, int level, int option, void *restrict val, socklen_t *restrict lenp);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            参数lenp是一个指向整数的指针。在调用getsockopt之前,设置该整数为复制选项缓冲区的长度。
+            如果选项的实际长度大于此值,则选项会被截断;如果实际长度小于此值,那么返回时将此值更新为实际长度。
+
+        实例见Chapter_16/initSer.c
+
+    6、 带外数据
+        带外数据(out-of-band data)是一些通信协议所支持的可选功能,与普通数据相比,它允许更高优先级的数据传输。
+        带外数据先行传输,即使传输队列已经有数据.
+        TCP支持带外数据,但是UDP不支持。
+
+        TCP将带外数据称为紧急数据(urgent data)。TCP仅支持一个字节的紧急数据,但是允许紧急数据在普通数据传递
+        机制数据流之外传输。
+        为了产生紧急数据,可以在3个send函数中的任意一个里指定MSG_OOB标志,如果带MSG_OOB标志发送的字节数超过
+        一个时,最后一个字节将被视为紧急数据字节。
+
+        如果通过套接字安排了信号的产生,那么紧急数据被接收时,会发送SIGURG信号。
+        在fcntl中使用F_SETOWN命令来设置一个套接字的所有权。如果fcntl中的第三个参数为正值,那么它指定的就是进程ID。
+        如果为非-1的负值,那么它代表的就是进程组ID。
+        因此,可以通过调用以下函数安排进程接收套接字的信号:
+            fcntl(sockfd, F_SETOWN, pid);
+        F_GETOWN命令可以用来获得当前套接字所有权。对于F_SETOWN命令,负值代表进程组ID,正值代表进程ID。
+        因此,调用
+            owner = fcntl(sockfd, F_GETOWN, 0);
+        将返回owner,如果owner为正值,则等于配置为接收套接字信号的进程ID;负值,则其绝对值为进程组ID
+
+        TCP支持紧急标志(urgent mark)的概念,即在普通数据流中紧急数据所在的位置。
+        如果采用套接字选项SO_OOBINLINE,那么可以在普通数据中接收紧急数据,为帮助判断是否已经到达紧急标记,
+        可以使用函数sockatmark
+
+        #include <sys/socket.h>
+        int sockatmark(int sockfd);
+
+        返回值:
+            若在标记处,返回1
+            若不在标记处,返回0
+            出错,返回-1
+
+        函数说明:
+            当下一个要读取的字节在紧急标志处时,sockatmark返回1
+            
+        当带外数据出现在套接字读取队列时,select函数会返回一个文件描述符并且有一个待处理的异常条件。
+        可以在普通数据流上接收紧急数据,也可以在其中一个recv函数中采用MSG_OOB标志在其他队列数据之前接收紧急数据。
+        TCP队列仅用一个字节的紧急数据,如果在接收当前的紧急数据字节之前又有新的紧急数据到来,那么已有的字节会被丢弃。
+
+    7、 非阻塞和异步I/O
+        在套接字非阻塞模式下,recv 和 send 不会阻塞而是会调用失败,将errno设置为EWOULDBLOCK 或者 EAGAIN。
+        使用poll或者select来判断是否接收或传输数据。
+
+        在基于套接字的异步I/O中,当从套接字中读取数据时,或者当套接字写队列中空间变得可用时,可以安排要发送的
+        信号SIGIO.
+        启用异步I/O是一个两步骤的过程:
+            1)  建立套接字所有权,这样信号可以被传递到合适的进程
+            2)  通知套接字当I/O操作不会阻塞时发送信号。
+
+        可以使用3种方式来完成第一个步骤:
+            a.  在fcntl中使用F_SETOWN命令
+            b.  在ioctl中使用FIOSETOWN命令
+            c.  在ioctl中使用SIOCSPGRP命令
+
+        要完成第二个步骤,有两种选择:
+            a.  在fcntl中使用F_SETFL命令并且启用文件标志O_ASYNC
+            b.  在ioctl中使用FIOASYNC命令
+
+        以下是LINUX平台所支持的选项:
+            fcntl(fd, F_SETOWN, pid);
+            ioctl(fd, FIOSETOWN, pid);
+            ioctl(fd, SIOCSPGRP, pid);
+            fcntl(fd, F_SETFL, flags|O_ASYNC);
+            ioctl(fd, FIOASYNC, &n);

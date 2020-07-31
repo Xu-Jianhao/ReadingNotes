@@ -21,10 +21,3 @@ int set_cloexec(int fd)
 
     return(fcntl(fd, F_SETFD, val));
 }
-
-int main(void)
-{
-
-    exit(0);
-}
-

@@ -130,6 +130,8 @@ void    WAIT_CHILD(void);
 /* set CLOEXEC */
 int set_cloexec(int);
 
+void daemonize(const char *);
+
 #endif /* _APUE_H */
 
 
