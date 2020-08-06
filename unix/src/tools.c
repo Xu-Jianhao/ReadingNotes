@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <syslog.h>
 #include <sys/resource.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 static volatile sig_atomic_t sigflag;       /* set nonzero by sig handler */
 static sigset_t newmask, oldmask, zeromask;
@@ -232,4 +234,13 @@ void daemonize(const char *cmd)
         syslog(LOG_ERR, "unexpected file descriptors %d %d %d", fd0, fd1, fd2);
         exit(1);
     }
+}
+
+/* 使用socketpair函数来创建一个相互连接的UNIX域套接字 */
+/* Returns a full-duplex pipe (a UNIX domain socket) with the two file descriptors 
+ * returned in fd[0] and fd[1] 
+ */
+int fd_pipe(int fd[2])
+{
+    return(socketpair(AF_UNIX, SOCK_STREAM, 0, fd));
 }

@@ -5988,3 +5988,102 @@
             ioctl(fd, SIOCSPGRP, pid);
             fcntl(fd, F_SETFL, flags|O_ASYNC);
             ioctl(fd, FIOASYNC, &n);
+
+第17章、 高级进程间通信
+    1、UNIX域套接字
+        UNIX套接字比因特网域套接字效率更高,UNIX域套接字仅仅复制数据,他们并不执行协议处理,不需要添加或删除
+        网络报头,无需计算校验和,不需要产生顺序好,无需发送确认报文。
+
+        UNIX域套接字提供流和数据报两种接口。UNIX域数据报服务是可靠的,既不会丢失报文也不会传递出错。
+        UNIX域套接字就像是套接字和管道的混合。可以使用它们面向网络的域套接字接口或者使用socketpair函数来创建
+        一对无命名的、相互连接的UNIX域套接字。
+        #include <sys/socket.h>
+        int socketpair(int domain, int type, int protocol, int sockfd[2]);
+
+        返回值:
+            成功,返回0
+            出错,返回-1
+
+        函数说明:
+            一对相互连接的UNIX域套接字可以起到全双工管道的作用: 两端对读和写开放。我们将其称为fd管道(fd-pipe),
+            以便与普通的半双工管道区分开来。
+
+    2、命名UNIX域套接字
+        UNIX域套接字使用的地址格式不同于因特网套接字。
+        UNIX域套接字的地址由sockaddr_un结构表示,sockaddr_un结构定义在头文件<sys/un.h>中:
+            struct sockaddr_un {
+                sa_family_t     sun_family;     /* AF_UNIX */ 
+                char            sun_path[108];  /* pathname */
+            };
+        sockaddr_un结构的sun_path成员包含一个路径名。当我们将一个地址绑定到一个UNIX域套接字时,系统会用该路径名
+        创建一个S_IFSOCK类型的文件。
+        
+        该文件仅用于向客户端进程告示套接字名字。该文件无法打开,也不能由应用程序用于通信。
+        如果试图绑定同一地址时,该文件已经存在,那么bind请求会失败。当关闭套接字时,并不自动删除该文件,
+        所以必须确保在应用程序退出前,对该文件执行解除链接操作。
+
+        见Chapter_17/unixExample.c
+
+    3、唯一连接
+        开发3个函数,使用这些函数可以使运行在同一台计算机上的两个无关进程之间创建唯一连接。使用UNIX域
+        套接字应用于底层通信机制。
+
+        见src/unixSocket.c
+
+        #include "apue.h"
+        int serv_listen(const char *name);
+                    返回值: 成功,返回要监听的文件描述符;出错,返回负值
+
+        int serv_accept(int listenfd, uid_t *uidptr);
+                    返回值: 成功,返回新文件描述符;出错,返回负值
+
+        int cli_conn(const char *name);
+                    返回值: 成功,返回文件描述符;出错,返回负值
+
+        函数说明:
+            服务进程可以调用serv_listen函数声明它要在一个众所周知的文件上监听客户进程的连接请求。
+            当客户进程想要连接至服务进程时,它们将使用该名字。
+            serv_listen函数的返回值是用于接收客户进程连接请求的服务器UNIX域套接字。
+
+            服务进程可以使用serv_accept函数等待客户进程连接请求的到达。当一个请求到达时,系统自动创建一个新的
+            UNIX域套接字,并将它与客户进程套接字连接,最后将这个新套接字返回给服务器。
+            此外客户进程的有效用户ID存放在uidptr指向的存储区中。
+
+            客户进程调用cli_conn函数连接至服务器进程,客户进程指定的name参数必须与服务器进程调用serv_listen函数
+            时所用的名字相同。函数返回时,客户进程得到连接至服务器进程的文件描述符。
+
+    4、 传送文件描述符
+        在技术上,将指向一个打开文件表项的指针从一个进程发送到另外一个进程。该指针被分配存放在接收进程
+        的第一个可用描述符项中(往往发送进程和接收进程中描述符编号是不同的)。
+        两个进程共享同一个打开的文件表,类似父子进程之间的共享。
+
+        (见src/tpFileDes.c)
+        定义3个函数如下:
+        #include "apue.h"
+        int send_fd(int fd, int fd_to_send);
+        int send_err(int fd, int status, const char *errmsg);
+                    返回值: 成功,返回0; 出错,返回-1
+
+        int recv_fd(int fd, ssize_t (*userfunc)(int, const void *, size_t));
+                    返回值: 成功,返回文件描述符; 出错,返回负值。
+
+        函数说明:
+            当一个进程(通常是服务器进程)想将一个描述符传送给另一个进程时,可以调用send_fd 或 send_err。
+            等待接收描述符的进程(客户进程)调用recv_fd。
+
+            send_fd 使用fd代表的UNIX域套接字发送描述符fd_to_send.
+            send_err使用fd发送errmsg以及随后的status字节。status的值应在-1～255.
+
+            客户进程调用recv_fd接收描述符。如果一切正常(send_fd成功),则函数返回值为非负描述符。
+            否则,返回值是由send_err发送的status(-1~255的一个负值)。另外,如果服务器进程发送了一条出错消息,
+            则客户进程调用它自己的userfunc函数处理该消息。userfunc的第一个参数是常量STDERR_FILENO,
+            然后是指向出错消息的指针及其长度。
+            userfunc函数的返回值是已写的字节数或负的出错编号值。客户进程常将普通的write函数指定为userfunc.
+
+            实现协议:
+                为发送一个描述符,send_fd先发送2字节0,然后是实际描述符。
+                为了发送一条出错消息,send_err发送errmsg,然后是1字节0,最后是status字节的绝对值(1~255)。
+                recv_fd函数读取套接字中的所有字节直至遇到null字符。null字符之前的所有字符都传送给调用者的
+                userfunc。
+                recv_fd读取的下一个字节是状态(status)字节。若状态字节为0,则表示一个描述符已经传送过来,
+                否则表示没有描述符可以接收。
